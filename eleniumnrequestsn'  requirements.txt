@@ -1,0 +1,1931 @@
+[1mdiff --git a/bot.py b/bot.py[m
+[1mindex 45c5150..527006a 100644[m
+[1m--- a/bot.py[m
+[1m+++ b/bot.py[m
+[36m@@ -1,955 +1,960 @@[m
+[31m-import telebot[m
+[31m-import threading[m
+[31m-import time, random, string[m
+[31m-import requests[m
+[31m-import re[m
+[31m-import os[m
+[31m-import hashlib[m
+[31m-import json[m
+[31m-from selenium import webdriver[m
+[31m-from selenium.webdriver.chrome.service import Service[m
+[31m-from selenium.webdriver.common.by import By[m
+[31m-from selenium.webdriver.common.keys import Keys[m
+[31m-from selenium.webdriver.support.ui import WebDriverWait, Select[m
+[31m-from selenium.webdriver.support import expected_conditions as EC[m
+[31m-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton[m
+[31m-from TempMail import TempMail[m
+[31m-#from temp_mail import TempMail[m
+[31m-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"[m
+[31m-CHROMEDRIVER_PATH = "/usr/local/bin/chromedriver"[m
+[31m-PASSWORD = "YourDefaultPassword@123"[m
+[31m-bot = telebot.TeleBot(BOT_TOKEN)[m
+[31m-user_sessions = {}[m
+[31m-user_accounts = {} [m
+[31m-ADMIN_IDS = [YOUR_TELEGRAM_USER_ID][m
+[31m-APPROVE_FILE = "approve.txt"[m
+[31m-ACCOUNTS_FILE = "accounts.json"[m
+[31m-CHANNEL_ID = YOUR_CHANNEL_ID  # Channel where accounts are posted[m
+[31m-approved_users = set()[m
+[31m-[m
+[31m-# Load approved users[m
+[31m-if os.path.exists(APPROVE_FILE):[m
+[31m-    with open(APPROVE_FILE, "r") as f:[m
+[31m-        approved_users = set(int(line.strip()) for line in f if line.strip().isdigit())[m
+[31m-[m
+[31m-# Load saved accounts[m
+[31m-if os.path.exists(ACCOUNTS_FILE):[m
+[31m-    try:[m
+[31m-        with open(ACCOUNTS_FILE, "r") as f:[m
+[31m-            user_accounts = json.load(f)[m
+[31m-    except:[m
+[31m-        user_accounts = {}[m
+[31m-[m
+[31m-def save_approved_user(user_id):[m
+[31m-    approved_users.add(user_id)[m
+[31m-    with open(APPROVE_FILE, "a") as f:[m
+[31m-        f.write(f"{user_id}\n")[m
+[31m-[m
+[31m-def save_account(user_id, account_data):[m
+[31m-    """Save account data to persistent storage"""[m
+[31m-    if str(user_id) not in user_accounts:[m
+[31m-        user_accounts[str(user_id)] = [][m
+[31m-    user_accounts[str(user_id)].append(account_data)[m
+[31m-[m
+[31m-    with open(ACCOUNTS_FILE, "w") as f:[m
+[31m-        json.dump(user_accounts, f, indent=2)[m
+[31m-[m
+[31m-def get_user_accounts(user_id):[m
+[31m-    """Get all accounts for a user"""[m
+[31m-    return user_accounts.get(str(user_id), [])[m
+[31m-[m
+[31m-def random_suffix(length=6):[m
+[31m-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))[m
+[31m-[m
+[31m-class TempMailService:[m
+[31m-    def __init__(self):[m
+[31m-        self.tmp = TempMail()[m
+[31m-        self.inbox = None[m
+[31m-        self.email = None[m
+[31m-[m
+[31m-    def create_email(self):[m
+[31m-        try:[m
+[31m-            print("Creating temporary email using TempMail library...")[m
+[31m-            self.inbox = self.tmp.createInbox()[m
+[31m-            self.email = self.inbox.address[m
+[31m-            print(f"Created email: {self.email}")[m
+[31m-            return self.email[m
+[31m-        except Exception as e:[m
+[31m-            print(f"Error creating email: {e}")[m
+[31m-            return None[m
+[31m-[m
+[31m-    def get_otp_from_github_email(self, max_attempts=30):[m
+[31m-        """Extract 8-digit OTP from GitHub verification email"""[m
+[31m-        print(f"Looking for OTP in emails for {max_attempts} attempts...")[m
+[31m-        for attempt in range(max_attempts):[m
+[31m-            print(f"Attempt {attempt + 1}/{max_attempts}")[m
+[31m-            try:[m
+[31m-                emails = self.tmp.getEmails(self.inbox)[m
+[31m-                print(f"Found {len(emails)} emails")[m
+[31m-[m
+[31m-                for email in emails:[m
+[31m-                    sender = email.sender.lower() if hasattr(email, 'sender') else ''[m
+[31m-                    subject = email.subject if hasattr(email, 'subject') else ''[m
+[31m-                    body = email.body if hasattr(email, 'body') else ''[m
+[31m-[m
+[31m-                    print(f"Email from: {sender}")[m
+[31m-                    print(f"Subject: {subject}")[m
+[31m-[m
+[31m-                    if 'github' in sender or 'noreply' in sender or 'github' in subject.lower():[m
+[31m-                        print(f"GitHub email found - Subject: {subject}")[m
+[31m-[m
+[31m-                        # Look for 8-digit OTP pattern[m
+[31m-                        otp_match = re.search(r'\b\d{8}\b', body)[m
+[31m-                        if otp_match:[m
+[31m-                            otp = otp_match.group()[m
+[31m-                            print(f"Found 8-digit OTP: {otp}")[m
+[31m-                            return otp[m
+[31m-[m
+[31m-                        # Look for 6-digit OTP as fallback[m
+[31m-                        otp_match = re.search(r'\b\d{6}\b', body)[m
+[31m-                        if otp_match:[m
+[31m-                            otp = otp_match.group()[m
+[31m-                            print(f"Found 6-digit OTP: {otp}")[m
+[31m-                            return otp[m
+[31m-[m
+[31m-                        # Alternative patterns[m
+[31m-                        otp_match = re.search(r'verification code[:\s]*(\d{6,8})', body, re.IGNORECASE)[m
+[31m-                        if otp_match:[m
+[31m-                            otp = otp_match.group(1)[m
+[31m-                            print(f"Found OTP (alternative pattern): {otp}")[m
+[31m-                            return otp[m
+[31m-[m
+[31m-                        print(f"GitHub email body preview: {body[:200]}...")[m
+[31m-[m
+[31m-            except Exception as e:[m
+[31m-                print(f"Error checking emails: {e}")[m
+[31m-[m
+[31m-            time.sleep(3)[m
+[31m-[m
+[31m-        print("No OTP found after all attempts")[m
+[31m-        return None[m
+[31m-[m
+[31m-class OneSecMailService:[m
+[31m-    def __init__(self):[m
+[31m-        self.base_url = "https://www.1secmail.com/api/v1/"[m
+[31m-        self.email = None[m
+[31m-        self.login = None[m
+[31m-        self.domain = None[m
+[31m-[m
+[31m-    def get_domains(self):[m
+[31m-        try:[m
+[31m-            response = requests.get(f"{self.base_url}?action=getDomainList", timeout=10)[m
+[31m-            return response.json()[m
+[31m-        except:[m
+[31m-            return ['1secmail.com', '1secmail.org', '1secmail.net'][m
+[31m-[m
+[31m-    def create_email(self):[m
+[31m-        try:[m
+[31m-            print("Creating email using 1SecMail...")[m
+[31m-            domains = self.get_domains()[m
+[31m-            self.login = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[31m-            self.domain = random.choice(domains)[m
+[31m-            self.email = f"{self.login}@{self.domain}"[m
+[31m-            print(f"Created 1SecMail email: {self.email}")[m
+[31m-            return self.email[m
+[31m-        except Exception as e:[m
+[31m-            print(f"Error creating 1SecMail: {e}")[m
+[31m-            return None[m
+[31m-[m
+[31m-    def get_otp_from_github_email(self, max_attempts=30):[m
+[31m-        print(f"Looking for OTP in 1SecMail for {max_attempts} attempts...")[m
+[31m-        for attempt in range(max_attempts):[m
+[31m-            try:[m
+[31m-                response = requests.get([m
+[31m-                    f"{self.base_url}?action=getMessages&login={self.login}&domain={self.domain}",[m
+[31m-                    timeout=10[m
+[31m-                )[m
+[31m-                messages = response.json()[m
+[31m-[m
+[31m-                for msg in messages:[m
+[31m-                    if 'github' in msg.get('from', '').lower() or 'github' in msg.get('subject', '').lower():[m
+[31m-                        # Get full message[m
+[31m-                        msg_response = requests.get([m
+[31m-                            f"{self.base_url}?action=readMessage&login={self.login}&domain={self.domain}&id={msg['id']}",[m
+[31m-                            timeout=10[m
+[31m-                        )[m
+[31m-                        full_msg = msg_response.json()[m
+[31m-                        body = full_msg.get('body', '')[m
+[31m-[m
+[31m-                        # Look for OTP[m
+[31m-                        otp_match = re.search(r'\b\d{6,8}\b', body)[m
+[31m-                        if otp_match:[m
+[31m-                            return otp_match.group()[m
+[31m-            except Exception as e:[m
+[31m-                print(f"Error checking 1SecMail: {e}")[m
+[31m-[m
+[31m-            time.sleep(3)[m
+[31m-        return None[m
+[31m-[m
+[31m-class TempMailPlusService:[m
+[31m-    def __init__(self):[m
+[31m-        self.base_url = "https://api.temp-mail.org/request"[m
+[31m-        self.email = None[m
+[31m-        self.hash = None[m
+[31m-[m
+[31m-    def get_domains(self):[m
+[31m-        try:[m
+[31m-            response = requests.get(f"{self.base_url}/domains/format/json", timeout=10)[m
+[31m-            return response.json()[m
+[31m-        except:[m
+[31m-            return ['@tempmail.org', '@temp-mail.org'][m
+[31m-[m
+[31m-    def create_email(self):[m
+[31m-        try:[m
+[31m-            print("Creating email using TempMail.org...")[m
+[31m-            domains = self.get_domains()[m
+[31m-            name = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[31m-            self.email = f"{name}{domains[0]}"[m
+[31m-            self.hash = hashlib.md5(self.email.encode()).hexdigest()[m
+[31m-            print(f"Created TempMail.org email: {self.email}")[m
+[31m-            return self.email[m
+[31m-        except Exception as e:[m
+[31m-            print(f"Error creating TempMail.org: {e}")[m
+[31m-            return None[m
+[31m-[m
+[31m-    def get_otp_from_github_email(self, max_attempts=30):[m
+[31m-        print(f"Looking for OTP in TempMail.org for {max_attempts} attempts...")[m
+[31m-        for attempt in range(max_attempts):[m
+[31m-            try:[m
+[31m-                response = requests.get([m
+[31m-                    f"{self.base_url}/mail/id/{self.hash}/format/json",[m
+[31m-                    timeout=10[m
+[31m-                )[m
+[31m-                messages = response.json()[m
+[31m-[m
+[31m-                for msg in messages:[m
+[31m-                    if 'github' in msg.get('mail_from', '').lower() or 'github' in msg.get('mail_subject', '').lower():[m
+[31m-                        body = msg.get('mail_text', '')[m
+[31m-                        otp_match = re.search(r'\b\d{6,8}\b', body)[m
+[31m-                        if otp_match:[m
+[31m-                            return otp_match.group()[m
+[31m-            except Exception as e:[m
+[31m-                print(f"Error checking TempMail.org: {e}")[m
+[31m-[m
+[31m-            time.sleep(3)[m
+[31m-        return None[m
+[31m-[m
+[31m-class BackupTempMail:[m
+[31m-    def __init__(self):[m
+[31m-        self.session = requests.Session()[m
+[31m-        self.session.headers.update({[m
+[31m-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'[m
+[31m-        })[m
+[31m-        self.email = None[m
+[31m-[m
+[31m-    def create_email(self):[m
+[31m-        try:[m
+[31m-            domains = ['@tempmail.org', '@10minutemail.net', '@mailinator.com'][m
+[31m-            username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[31m-            self.email = f"{username}{random.choice(domains)}"[m
+[31m-            print(f"Generated backup email: {self.email}")[m
+[31m-            return self.email[m
+[31m-        except Exception as e:[m
+[31m-            print(f"Error creating backup email: {e}")[m
+[31m-            return None[m
+[31m-[m
+[31m-    def get_otp_from_github_email(self, max_attempts=30):[m
+[31m-        return None[m
+[31m-[m
+[31m-def create_temp_email_with_fallback():[m
+[31m-    """Try multiple TempMail services in order"""[m
+[31m-    services = [[m
+[31m-        ("TempMail Library", TempMailService),[m
+[31m-        ("1SecMail", OneSecMailService),[m
+[31m-        ("TempMail.org", TempMailPlusService),[m
+[31m-        ("Backup", BackupTempMail)[m
+[31m-    ][m
+[31m-[m
+[31m-    for service_name, service_class in services:[m
+[31m-        try:[m
+[31m-            print(f"Trying {service_name}...")[m
+[31m-            temp_mail = service_class()[m
+[31m-            email = temp_mail.create_email()[m
+[31m-[m
+[31m-            if email:[m
+[31m-                print(f"Successfully created email with {service_name}: {email}")[m
+[31m-                return temp_mail[m
+[31m-            else:[m
+[31m-                print(f"{service_name} failed to create email")[m
+[31m-        except Exception as e:[m
+[31m-            print(f"{service_name} error: {e}")[m
+[31m-            continue[m
+[31m-[m
+[31m-    return None[m
+[31m-[m
+[31m-@bot.message_handler(commands=['approve'])[m
+[31m-def approve_user(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not authorized to approve users.")[m
+[31m-[m
+[31m-    args = msg.text.strip().split()[m
+[31m-    if len(args) != 2 or not args[1].isdigit():[m
+[31m-        return bot.send_message(chat_id, "Usage: /approve <user_id>")[m
+[31m-[m
+[31m-    user_id = int(args[1])[m
+[31m-    save_approved_user(user_id)[m
+[31m-    bot.send_message(chat_id, f"✅ Approved user with ID: {user_id}")[m
+[31m-    bot.send_message(CHANNEL_ID, f"✅ Approved user: `{user_id}`", parse_mode="Markdown")[m
+[31m-[m
+[31m-@bot.message_handler(commands=['upload_cards'])[m
+[31m-def upload_cards_command(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[31m-[m
+[31m-    bot.send_message(chat_id, "📤 Please upload your card.txt file.\n\nFormat: `number|month|year|cvv` (one per line)\nExample:\n`4111111111111111|12|25|123`", parse_mode="Markdown")[m
+[31m-[m
+[31m-@bot.message_handler(content_types=['document'])[m
+[31m-def handle_document(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not allowed to upload files.")[m
+[31m-[m
+[31m-    if msg.document.file_name == "card.txt":[m
+[31m-        try:[m
+[31m-            file_info = bot.get_file(msg.document.file_id)[m
+[31m-            downloaded_file = bot.download_file(file_info.file_path)[m
+[31m-[m
+[31m-            with open("card.txt", "wb") as f:[m
+[31m-                f.write(downloaded_file)[m
+[31m-[m
+[31m-            # Validate card format[m
+[31m-            with open("card.txt", "r") as f:[m
+[31m-                lines = f.readlines()[m
+[31m-                valid_cards = 0[m
+[31m-                for line in lines:[m
+[31m-                    if line.strip() and "|" in line:[m
+[31m-                        parts = line.strip().split("|")[m
+[31m-                        if len(parts) == 4:[m
+[31m-                            valid_cards += 1[m
+[31m-[m
+[31m-            bot.send_message(chat_id, f"✅ Card file uploaded successfully!\n📊 Found {valid_cards} valid cards.")[m
+[31m-        except Exception as e:[m
+[31m-            bot.send_message(chat_id, f"❌ Error uploading file: {e}")[m
+[31m-    else:[m
+[31m-        bot.send_message(chat_id, "❌ Please upload a file named 'card.txt'")[m
+[31m-[m
+[31m-@bot.message_handler(commands=['github'])[m
+[31m-def handle_github_cmd(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[31m-[m
+[31m-    args = msg.text.strip().split()[m
+[31m-    if len(args) != 2 or not args[1].isdigit():[m
+[31m-        return bot.send_message(chat_id, "Usage: `/github <amount>`\nExample: `/github 5` (to create 5 accounts)", parse_mode="Markdown")[m
+[31m-[m
+[31m-    amount = int(args[1])[m
+[31m-    if amount < 1 or amount > 500:[m
+[31m-        return bot.send_message(chat_id, "❌ Amount must be between 1 and 500 accounts.")[m
+[31m-[m
+[31m-    bot.send_message(chat_id, f"🚀 Starting creation of {amount} GitHub accounts...\nAccounts will be created one by one.")[m
+[31m-    threading.Thread(target=create_multiple_accounts, args=(chat_id, amount)).start()[m
+[31m-[m
+[31m-@bot.message_handler(commands=['accounts'])[m
+[31m-def show_accounts(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[31m-[m
+[31m-    accounts = get_user_accounts(chat_id)[m
+[31m-    if not accounts:[m
+[31m-        return bot.send_message(chat_id, "📭 You don't have any GitHub accounts yet.\nUse `/github <amount>` to create accounts.", parse_mode="Markdown")[m
+[31m-[m
+[31m-    markup = InlineKeyboardMarkup()[m
+[31m-    for i, account in enumerate(accounts):[m
+[31m-        markup.row(InlineKeyboardButton(f"Account {i+1}: {account['username']}", callback_data=f"account_{chat_id}_{i}"))[m
+[31m-[m
+[31m-    bot.send_message(chat_id, f"📋 Your GitHub Accounts ({len(accounts)} total):\nClick on any account to view details:", reply_markup=markup)[m
+[31m-[m
+[31m-def create_multiple_accounts(chat_id, amount):[m
+[31m-    """Create multiple GitHub accounts one by one"""[m
+[31m-    success_count = 0[m
+[31m-    failed_count = 0[m
+[31m-[m
+[31m-    for i in range(amount):[m
+[31m-        bot.send_message(chat_id, f"🔄 Creating account {i+1}/{amount}...")[m
+[31m-[m
+[31m-        result = github_signup_auto(chat_id, account_number=i+1)[m
+[31m-[m
+[31m-        if result:[m
+[31m-            success_count += 1[m
+[31m-            bot.send_message(chat_id, f"✅ Account {i+1}/{amount} created successfully!")[m
+[31m-        else:[m
+[31m-            failed_count += 1[m
+[31m-            bot.send_message(chat_id, f"❌ Account {i+1}/{amount} failed to create.")[m
+[31m-[m
+[31m-        # Wait between accounts to avoid rate limiting[m
+[31m-        if i < amount - 1:[m
+[31m-            bot.send_message(chat_id, "⏳ Waiting 10 seconds before creating next account...")[m
+[31m-            time.sleep(10)[m
+[31m-[m
+[31m-    # Final summary[m
+[31m-    summary = f"🎯 **Account Creation Summary**\n\n"[m
+[31m-    summary += f"✅ Successful: {success_count}\n"[m
+[31m-    summary += f"❌ Failed: {failed_count}\n"[m
+[31m-    summary += f"📊 Total: {amount}\n\n"[m
+[31m-    summary += f"Use `/accounts` to view all your accounts."[m
+[31m-[m
+[31m-    bot.send_message(chat_id, summary, parse_mode="Markdown")[m
+[31m-[m
+[31m-def create_repo_and_codespace(driver, wait, username):[m
+[31m-    try:[m
+[31m-        driver.get("https://github.com/new")[m
+[31m-        suggested_btn = wait.until(EC.element_to_be_clickable([m
+[31m-            (By.XPATH, "//button[contains(@aria-label, 'Use suggested repository name')]")))[m
+[31m-        repo_name = suggested_btn.text.strip()[m
+[31m-        suggested_btn.click()[m
+[31m-        readme_toggle = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@aria-labelledby='add-readme']")))[m
+[31m-        if readme_toggle.get_attribute("aria-pressed") == "false":[m
+[31m-            readme_toggle.click()[m
+[31m-        time.sleep(1)[m
+[31m-        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and .//span[text()='Create repository']]")))[m
+[31m-        create_button.click()[m
+[31m-        time.sleep(5)[m
+[31m-        code_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//summary[contains(@class, 'get-repo-select-menu')]")))[m
+[31m-        code_button.click()[m
+[31m-        time.sleep(1)[m
+[31m-        codespaces_tab = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Codespaces')]")))[m
+[31m-        codespaces_tab.click()[m
+[31m-        time.sleep(1)[m
+[31m-        create_codespace_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Create codespace on main')]")))[m
+[31m-        create_codespace_btn.click()[m
+[31m-        return repo_name[m
+[31m-    except Exception as e:[m
+[31m-        print("❌ Error in repo/codespace creation:", e)[m
+[31m-        return None[m
+[31m-[m
+[31m-def upgrade_to_github_pro(driver, chat_id=None):[m
+[31m-    wait = WebDriverWait(driver, 20)[m
+[31m-    try:[m
+[31m-        time.sleep(10)[m
+[31m-        driver.get("https://github.com/settings/billing/licensing")[m
+[31m-[m
+[31m-        if chat_id:[m
+[31m-            bot.send_message(chat_id, "🔁 Opening Licensing Page...")[m
+[31m-[m
+[31m-        try:[m
+[31m-            upgrade_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Upgrade to GitHub Pro')]")))[m
+[31m-            upgrade_link.click()[m
+[31m-            if chat_id:[m
+[31m-                bot.send_message(chat_id, "✅ Clicked 'Upgrade to GitHub Pro' link.")[m
+[31m-        except Exception as link_error:[m
+[31m-            if chat_id:[m
+[31m-                bot.send_message(chat_id, f"⚠️ Could not find upgrade link: {link_error}")[m
+[31m-            return False[m
+[31m-[m
+[31m-        try:[m
+[31m-            final_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(), 'Upgrade to GitHub Pro')]]")))[m
+[31m-            time.sleep(2)[m
+[31m-            final_button.click()[m
+[31m-            if chat_id:[m
+[31m-                bot.send_message(chat_id, "✅ Clicked final 'Upgrade to GitHub Pro' button.")[m
+[31m-        except Exception as button_error:[m
+[31m-            if chat_id:[m
+[31m-                bot.send_message(chat_id, f"⚠️ Failed - Card not added or insufficient balance")[m
+[31m-            return False[m
+[31m-[m
+[31m-        time.sleep(5)[m
+[31m-        if "GitHub Pro" in driver.page_source:[m
+[31m-            return True[m
+[31m-        return True[m
+[31m-    except Exception as e:[m
+[31m-        if chat_id:[m
+[31m-            bot.send_message(chat_id, f"❌ Error during upgrade: {e}")[m
+[31m-        return False[m
+[31m-[m
+[31m-def github_signup_auto(chat_id, account_number=1):[m
+[31m-    USERNAME = "jnjks" + ''.join(random.choices(string.ascii_lowercase, k=6))[m
+[31m-    IOS_USER_AGENTS = [[m
+[31m-        "Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"[m
+[31m-    ][m
+[31m-[m
+[31m-    # Create temporary email using TempMail library[m
+[31m-    temp_mail = create_temp_email_with_fallback()[m
+[31m-[m
+[31m-    if not temp_mail or not temp_mail.email:[m
+[31m-        bot.send_message(chat_id, f"❌ Account {account_number}: Failed to create temporary email")[m
+[31m-        return False[m
+[31m-[m
+[31m-    email = temp_mail.email[m
+[31m-[m
+[31m-    # Check if it's from TempMail library[m
+[31m-    if isinstance(temp_mail, TempMailService):[m
+[31m-        bot.send_message(chat_id, f"📧 Account {account_number}: Created temporary email: `{email}`", parse_mode="Markdown")[m
+[31m-    else:[m
+[31m-        bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email: `{email}`", parse_mode="Markdown")[m
+[31m-[m
+[31m-    try:[m
+[31m-        ios_user_agent = random.choice(IOS_USER_AGENTS)[m
+[31m-        service = Service(CHROMEDRIVER_PATH)[m
+[31m-        options = webdriver.ChromeOptions()[m
+[31m-        options.add_argument('--headless=new')[m
+[31m-        options.add_argument('--no-sandbox')[m
+[31m-        options.add_argument('--disable-dev-shm-usage')[m
+[31m-        options.add_argument('--disable-gpu')[m
+[31m-        options.add_argument('--log-level=3')[m
+[31m-        options.add_argument('--window-size=1920,1080')[m
+[31m-        options.add_argument('--incognito')[m
+[31m-        options.add_argument(f"user-agent={ios_user_agent}")[m
+[31m-        options.add_experimental_option('excludeSwitches', ['enable-logging'])[m
+[31m-[m
+[31m-        driver = webdriver.Chrome(service=service, options=options)[m
+[31m-        wait = WebDriverWait(driver, 30)[m
+[31m-[m
+[31m-        driver.get("https://github.com/signup")[m
+[31m-        bot.send_message(chat_id, f"🟢 Account {account_number}: Start Creating GitHub Account...")[m
+[31m-[m
+[31m-        # Enter email[m
+[31m-        email_input = wait.until(EC.presence_of_element_located((By.ID, "email")))[m
+[31m-        email_input.send_keys(email)[m
+[31m-        email_input.send_keys(Keys.RETURN)[m
+[31m-        time.sleep(2)[m
+[31m-[m
+[31m-        # Enter password[m
+[31m-        password_input = wait.until(EC.presence_of_element_located((By.ID, "password")))[m
+[31m-        password_input.send_keys(PASSWORD)[m
+[31m-        password_input.send_keys(Keys.RETURN)[m
+[31m-        time.sleep(2)[m
+[31m-[m
+[31m-        # Enter username[m
+[31m-        username_input = wait.until(EC.presence_of_element_located((By.ID, "login")))[m
+[31m-        username_input.send_keys(USERNAME)[m
+[31m-        username_input.send_keys(Keys.RETURN)[m
+[31m-        time.sleep(2)[m
+[31m-[m
+[31m-        # Click create account button[m
+[31m-        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.signup-form-fields__button")))[m
+[31m-        driver.execute_script("arguments[0].click();", create_button)[m
+[31m-[m
+[31m-        old_url = driver.current_url[m
+[31m-        for _ in range(30):[m
+[31m-            if driver.current_url != old_url:[m
+[31m-                break[m
+[31m-            time.sleep(1)[m
+[31m-[m
+[31m-        if "account_verifications" in driver.current_url:[m
+[31m-            bot.send_message(chat_id, f"📨 Account {account_number}: Waiting for OTP from email...")[m
+[31m-[m
+[31m-            # Only try to get OTP if using TempMail library[m
+[31m-            if isinstance(temp_mail, TempMailService) or isinstance(temp_mail, OneSecMailService) or isinstance(temp_mail, TempMailPlusService):[m
+[31m-                otp = temp_mail.get_otp_from_github_email()[m
+[31m-[m
+[31m-                if not otp:[m
+[31m-                    bot.send_message(chat_id, f"❌ Account {account_number}: Failed to receive OTP from email")[m
+[31m-                    driver.quit()[m
+[31m-                    return False[m
+[31m-[m
+[31m-                bot.send_message(chat_id, f"✅ Account {account_number}: Received OTP: `{otp}`", parse_mode="Markdown")[m
+[31m-[m
+[31m-                # Enter OTP (handle both 6 and 8 digit OTPs)[m
+[31m-                otp_length = len(otp)[m
+[31m-                for i, digit in enumerate(otp):[m
+[31m-                    if i < 8:  # GitHub OTP fields are typically 8 digits max[m
+[31m-                        otp_field = wait.until(EC.element_to_be_clickable((By.ID, f"launch-code-{i}")))[m
+[31m-                        otp_field.clear()[m
+[31m-                        otp_field.send_keys(digit)[m
+[31m-                        time.sleep(0.1)[m
+[31m-[m
+[31m-                # Click continue button[m
+[31m-                for btn in driver.find_elements(By.TAG_NAME, "button"):[m
+[31m-                    if "Continue" in btn.text:[m
+[31m-                        driver.execute_script("arguments[0].click();", btn)[m
+[31m-                        break[m
+[31m-            else:[m
+[31m-                bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email - OTP verification not available.")[m
+[31m-                driver.quit()[m
+[31m-                return False[m
+[31m-[m
+[31m-            time.sleep(5)[m
+[31m-[m
+[31m-            # Login to verify account creation[m
+[31m-            driver.get("https://github.com/login")[m
+[31m-            wait.until(EC.presence_of_element_located((By.ID, "login_field"))).send_keys(USERNAME)[m
+[31m-            driver.find_element(By.ID, "password").send_keys(PASSWORD)[m
+[31m-            driver.find_element(By.NAME, "commit").click()[m
+[31m-            time.sleep(3)[m
+[31m-[m
+[31m-            if "sessions/verified-device" in driver.current_url:[m
+[31m-                bot.send_message(chat_id, f"🛡 Account {account_number}: Device verification required. Handling automatically...")[m
+[31m-                time.sleep(5)[m
+[31m-[m
+[31m-            # Create repository and codespace[m
+[31m-            create_repo_and_codespace(driver, wait, USERNAME)[m
+[31m-[m
+[31m-            # Create GitHub token[m
+[31m-            driver.get("https://github.com/settings/tokens/new")[m
+[31m-            wait.until(EC.presence_of_element_located((By.ID, "oauth_access_description")))[m
+[31m-            token_name = "SoulKing" + random_suffix()[m
+[31m-[m
+[31m-            desc = driver.find_element(By.ID, "oauth_access_description")[m
+[31m-            desc.clear()[m
+[31m-            desc.send_keys(token_name)[m
+[31m-[m
+[31m-            scopes = ["repo", "user", "codespace", "admin:org", "delete_repo", "workflow", "write:packages",[m
+[31m-                      "delete:packages", "admin:public_key", "admin:repo_hook", "admin:org_hook", "gist",[m
+[31m-                      "notifications", "admin:enterprise", "audit_log", "copilot", "write:network_configurations",[m
+[31m-                      "project", "admin:gpg_key", "admin:ssh_signing_key"][m
+[31m-[m
+[31m-            for scope in scopes:[m
+[31m-                try:[m
+[31m-                    checkbox = wait.until(EC.element_to_be_clickable((By.XPATH, f"//input[@type='checkbox' and @value='{scope}']")))[m
+[31m-                    if not checkbox.is_selected():[m
+[31m-                        driver.execute_script("arguments[0].click();", checkbox)[m
+[31m-                except:[m
+[31m-                    pass[m
+[31m-[m
+[31m-            submit_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Generate token')]")[m
+[31m-            driver.execute_script("arguments[0].click();", submit_btn)[m
+[31m-[m
+[31m-            wait.until(EC.presence_of_element_located((By.ID, "new-oauth-token")))[m
+[31m-            token = driver.find_element(By.ID, "new-oauth-token").text.strip()[m
+[31m-[m
+[31m-            # Save account data[m
+[31m-            account_data = {[m
+[31m-                "username": USERNAME,[m
+[31m-                "password": PASSWORD,[m
+[31m-                "token": token,[m
+[31m-                "email": email,[m
+[31m-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),[m
+[31m-                "account_number": account_number[m
+[31m-            }[m
+[31m-[m
+[31m-            save_account(chat_id, account_data)[m
+[31m-[m
+[31m-            # Store in session for immediate access[m
+[31m-            user_sessions[f"{chat_id}_{account_number}"] = account_data[m
+[31m-[m
+[31m-            # Send to channel[m
+[31m-            tg_user = bot.get_chat(chat_id)[m
+[31m-            gh_info = f"👤 GitHub Username: `{USERNAME}`\n🔐 Password: `{PASSWORD}`\n🪪 Token: `{token}`\n📧 Email: `{email}`"[m
+[31m-            tg_info = f"👤 TG User: {tg_user.first_name} (@{tg_user.username})\n🆔 ID: `{chat_id}`\n📊 Account #{account_number}"[m
+[31m-            bot.send_message(CHANNEL_ID, f"{tg_info}\n\n{gh_info}", parse_mode="Markdown")[m
+[31m-[m
+[31m-            # Handle billing and card injection[m
+[31m-            try:[m
+[31m-                billing_url = "https://github.com/settings/billing/payment_information"[m
+[31m-                driver.get(billing_url)[m
+[31m-                bot.send_message(chat_id, f"💳 Account {account_number}: Opening Billing Information Page...")[m
+[31m-[m
+[31m-                wait.until(EC.presence_of_element_located((By.ID, "account_screening_profile_first_name"))).send_keys("soul")[m
+[31m-                driver.find_element(By.ID, "account_screening_profile_last_name").send_keys("king")[m
+[31m-                driver.find_element(By.ID, "account_screening_profile_address1").send_keys("delhi")[m
+[31m-                driver.find_element(By.ID, "account_screening_profile_city").send_keys("delhi")[m
+[31m-                Select(driver.find_element(By.ID, "account_screening_profile_country_code")).select_by_value("IN")[m
+[31m-                driver.find_element(By.ID, "account_screening_profile_postal_code").send_keys("100012")[m
+[31m-[m
+[31m-[m
+[31m-                wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@name='submit' and contains(., 'Save billing information')]"))).click()[m
+[31m-                bot.send_message(chat_id, f"💾 Account {account_number}: Saved Billing Information.")[m
+[31m-                time.sleep(3)[m
+[31m-[m
+[31m-                driver.refresh()[m
+[31m-                time.sleep(5)[m
+[31m-[m
+[31m-                try:[m
+[31m-                    warning_banner = driver.find_element(By.CSS_SELECTOR, '[data-testid="trade-screening-status-banner"]')[m
+[31m-                    if "flagged" in warning_banner.text.lower():[m
+[31m-                        bot.send_message(chat_id, f"🚫 Account {account_number}: Account is FLAGGED. Cannot proceed with billing.")[m
+[31m-                        driver.quit()[m
+[31m-                        return True  # Still consider it successful since account was created[m
+[31m-[m
+[31m-                except:[m
+[31m-                    bot.send_message(chat_id, f"✅ Account {account_number}: No flagged warning detected.")[m
+[31m-[m
+[31m-                # Card injection logic[m
+[31m-                if os.path.exists("card.txt"):[m
+[31m-                    with open("card.txt", "r") as f:[m
+[31m-                        card_list = [line.strip() for line in f if line.strip()][m
+[31m-[m
+[31m-                    for card_line in card_list:[m
+[31m-                        driver.get(billing_url)[m
+[31m-                        bot.send_message(chat_id, f"💳 Account {account_number}: Trying card: `{card_line[:4]}****`", parse_mode="Markdown")[m
+[31m-                        try:[m
+[31m-                            add_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.js-edit-payment-method-btn")))[m
+[31m-                            add_btn.click()[m
+[31m-                            wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "z_hppm_iframe")))[m
+[31m-[m
+[31m-                            card_number, month, year, cvv = card_line.split("|")[m
+[31m-                            wait.until(EC.presence_of_element_located((By.ID, "input-creditCardNumber"))).send_keys(card_number)[m
+[31m-                            Select(wait.until(EC.element_to_be_clickable((By.ID, "input-creditCardExpirationMonth")))).select_by_value(month)[m
+[31m-                            full_year = f"20{year}" if len(year) == 2 else year[m
+[31m-                            Select(wait.until(EC.element_to_be_clickable((By.ID, "input-creditCardExpirationYear")))).select_by_value(full_year)[m
+[31m-                            wait.until(EC.presence_of_element_located((By.ID, "input-cardSecurityCode"))).send_keys(cvv)[m
+[31m-[m
+[31m-                            wait.until(EC.element_to_be_clickable((By.ID, "submitButton"))).click()[m
+[31m-                            bot.send_message(chat_id, f"💾 Account {account_number}: Submitted card. Waiting for confirmation...")[m
+[31m-                            time.sleep(5)[m
+[31m-[m
+[31m-                            try:[m
+[31m-                                error_div = driver.find_element(By.ID, "error")[m
+[31m-                                if "declined" in error_div.text.lower():[m
+[31m-                                    bot.send_message(chat_id, f"❌ Account {account_number}: Card Declined")[m
+[31m-                                    driver.switch_to.default_content()[m
+[31m-                                    continue[m
+[31m-                            except:[m
+[31m-                                bot.send_message(chat_id, f"✅ Account {account_number}: Card approved.")[m
+[31m-                                driver.switch_to.default_content()[m
+[31m-                                upgrade_result = upgrade_to_github_pro(driver, chat_id)[m
+[31m-                                if upgrade_result:[m
+[31m-                                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")[m
+[31m-                                else:[m
+[31m-                                    bot.send_message(chat_id, f"⚠️ Account {account_number}: Card submitted, but upgrade to GitHub Pro failed.")[m
+[31m-                                break[m
+[31m-[m
+[31m-                            driver.switch_to.default_content()[m
+[31m-                            driver.refresh()[m
+[31m-                            time.sleep(5)[m
+[31m-                        except Exception as card_error:[m
+[31m-                            bot.send_message(chat_id, f"⚠️ Account {account_number}: Card error")[m
+[31m-                            driver.switch_to.default_content()[m
+[31m-                            continue[m
+[31m-                else:[m
+[31m-                    bot.send_message(chat_id, f"⚠️ Account {account_number}: No card.txt file found. Skipping card injection.")[m
+[31m-[m
+[31m-            except Exception as e:[m
+[31m-                bot.send_message(chat_id, f"❌ Account {account_number}: Billing/Card error: {e}")[m
+[31m-[m
+[31m-            # Try to upgrade to GitHub Pro even without card[m
+[31m-            try:[m
+[31m-                upgrade_result = upgrade_to_github_pro(driver, chat_id)[m
+[31m-                if upgrade_result:[m
+[31m-                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")[m
+[31m-            except:[m
+[31m-                pass[m
+[31m-[m
+[31m-            driver.quit()[m
+[31m-            return True[m
+[31m-[m
+[31m-        else:[m
+[31m-            bot.send_message(chat_id, f"❌ Account {account_number}: Account creation failed - no verification page found")[m
+[31m-            driver.quit()[m
+[31m-            return False[m
+[31m-[m
+[31m-    except Exception as e:[m
+[31m-        bot.send_message(chat_id, f"❌ Account {account_number}: Error during GitHub signup: {str(e)}")[m
+[31m-        try:[m
+[31m-            driver.quit()[m
+[31m-        except:[m
+[31m-            pass[m
+[31m-        return False[m
+[31m-[m
+[31m-@bot.message_handler(commands=['start'])[m
+[31m-def start_command(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    welcome_text = """[m
+[31m-🤖 **GitHub Account Creator Bot**[m
+[31m-[m
+[31m-**Commands:**[m
+[31m-• `/github <amount>` - Create GitHub accounts (1-10)[m
+[31m-• `/accounts` - View your created accounts[m
+[31m-• `/upload_cards` - Upload card.txt file[m
+[31m-• `/approve <user_id>` - Approve user (Admin only)[m
+[31m-• `/test_email` - Test TempMail service (Admin only)[m
+[31m-[m
+[31m-**Features:**[m
+[31m-✅ Multiple temporary email services[m
+[31m-✅ Auto OTP detection and verification[m
+[31m-✅ GitHub token generation with full permissions[m
+[31m-✅ Billing information setup[m
+[31m-✅ Credit card injection (if card.txt exists)[m
+[31m-✅ GitHub Pro upgrade attempt[m
+[31m-✅ Persistent account storage[m
+[31m-✅ One-by-one account creation[m
+[31m-[m
+[31m-**Examples:**[m
+[31m-• `/github 1` - Create 1 account[m
+[31m-• `/github 5` - Create 5 accounts[m
+[31m-[m
+[31m-**Note:** You need approval to use this bot.[m
+[31m-Contact admin for access.[m
+[31m-    """[m
+[31m-    bot.send_message(chat_id, welcome_text, parse_mode="Markdown")[m
+[31m-[m
+[31m-@bot.message_handler(commands=['test_email'])[m
+[31m-def test_email_creation(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS:[m
+[31m-        return bot.send_message(chat_id, "❌ Admin only command.")[m
+[31m-[m
+[31m-    bot.send_message(chat_id, "🧪 Testing TempMail services...")[m
+[31m-    temp_mail = create_temp_email_with_fallback()[m
+[31m-[m
+[31m-    if temp_mail and temp_mail.email:[m
+[31m-        service_name = temp_mail.__class__.__name__[m
+[31m-        bot.send_message(chat_id, f"✅ {service_name} working: `{temp_mail.email}`", parse_mode="Markdown")[m
+[31m-    else:[m
+[31m-        bot.send_message(chat_id, "❌ All TempMail services failed")[m
+[31m-[m
+[31m-@bot.callback_query_handler(func=lambda call: True)[m
+[31m-def handle_callback(call):[m
+[31m-    chat_id = call.message.chat.id[m
+[31m-[m
+[31m-    if call.data.startswith("account_"):[m
+[31m-        # Parse callback data: account_chatid_index[m
+[31m-        parts = call.data.split("_")[m
+[31m-        if len(parts) >= 3:[m
+[31m-            original_chat_id = int(parts[1])[m
+[31m-            account_index = int(parts[2])[m
+[31m-[m
+[31m-            # Get accounts from persistent storage[m
+[31m-            accounts = get_user_accounts(original_chat_id)[m
+[31m-[m
+[31m-            if account_index < len(accounts):[m
+[31m-                account = accounts[account_index][m
+[31m-[m
+[31m-                # Create inline keyboard for account details[m
+[31m-                markup = InlineKeyboardMarkup()[m
+[31m-                markup.row([m
+[31m-                    InlineKeyboardButton("👤 Username", callback_data=f"show_username_{original_chat_id}_{account_index}"),[m
+[31m-                    InlineKeyboardButton("🔑 Password", callback_data=f"show_password_{original_chat_id}_{account_index}")[m
+[31m-                )[m
+[31m-                markup.row([m
+[31m-                    InlineKeyboardButton("🧾 Token", callback_data=f"show_token_{original_chat_id}_{account_index}"),[m
+[31m-                    InlineKeyboardButton("📧 Email", callback_data=f"show_email_{original_chat_id}_{account_index}")[m
+[31m-                )[m
+[31m-                markup.row(InlineKeyboardButton("🔙 Back to Accounts", callback_data="back_to_accounts"))[m
+[31m-[m
+[31m-                account_info = f"📋 **Account #{account_index + 1} Details**\n\n"[m
+[31m-                account_info += f"👤 Username: `{account['username']}`\n"[m
+[31m-                account_info += f"📅 Created: {account.get('created_at', 'Unknown')}\n\n"[m
+[31m-                account_info += "Click buttons below to view sensitive information:"[m
+[31m-[m
+[31m-                bot.edit_message_text([m
+[31m-                    account_info,[m
+[31m-                    chat_id=chat_id,[m
+[31m-                    message_id=call.message.message_id,[m
+[31m-                    reply_markup=markup,[m
+[31m-                    parse_mode="Markdown"[m
+[31m-                )[m
+[31m-            else:[m
+[31m-                bot.answer_callback_query(call.id, "❌ Account not found.")[m
+[31m-[m
+[31m-    elif call.data.startswith("show_"):[m
+[31m-        # Parse callback data: show_field_chatid_index[m
+[31m-        parts = call.data.split("_")[m
+[31m-        if len(parts) >= 4:[m
+[31m-            field = parts[1][m
+[31m-            original_chat_id = int(parts[2])[m
+[31m-            account_index = int(parts[3])[m
+[31m-[m
+[31m-            accounts = get_user_accounts(original_chat_id)[m
+[31m-[m
+[31m-            if account_index < len(accounts):[m
+[31m-                account = accounts[account_index][m
+[31m-[m
+[31m-                if field == "username":[m
+[31m-                    bot.send_message(chat_id, f"👤 Username: `{account['username']}`", parse_mode="Markdown")[m
+[31m-                elif field == "password":[m
+[31m-                    bot.send_message(chat_id, f"🔑 Password: `{account['password']}`", parse_mode="Markdown")[m
+[31m-                elif field == "token":[m
+[31m-                    bot.send_message(chat_id, f"🧾 Token: `{account['token']}`", parse_mode="Markdown")[m
+[31m-                elif field == "email":[m
+[31m-                    bot.send_message(chat_id, f"📧 Email: `{account['email']}`", parse_mode="Markdown")[m
+[31m-[m
+[31m-                bot.answer_callback_query(call.id, f"✅ {field.title()} sent!")[m
+[31m-            else:[m
+[31m-                bot.answer_callback_query(call.id, "❌ Account not found.")[m
+[31m-[m
+[31m-    elif call.data == "back_to_accounts":[m
+[31m-        # Show accounts list again[m
+[31m-        accounts = get_user_accounts(chat_id)[m
+[31m-        if accounts:[m
+[31m-            markup = InlineKeyboardMarkup()[m
+[31m-            for i, account in enumerate(accounts):[m
+[31m-                markup.row(InlineKeyboardButton(f"Account {i+1}: {account['username']}", callback_data=f"account_{chat_id}_{i}"))[m
+[31m-[m
+[31m-            bot.edit_message_text([m
+[31m-                f"📋 Your GitHub Accounts ({len(accounts)} total):\nClick on any account to view details:",[m
+[31m-                chat_id=chat_id,[m
+[31m-                message_id=call.message.message_id,[m
+[31m-                reply_markup=markup[m
+[31m-            )[m
+[31m-        else:[m
+[31m-            bot.edit_message_text([m
+[31m-                "📭 You don't have any GitHub accounts yet.\nUse `/github <amount>` to create accounts.",[m
+[31m-                chat_id=chat_id,[m
+[31m-                message_id=call.message.message_id,[m
+[31m-                parse_mode="Markdown"[m
+[31m-            )[m
+[31m-[m
+[31m-    else:[m
+[31m-        bot.answer_callback_query(call.id, "Invalid selection.")[m
+[31m-[m
+[31m-@bot.message_handler(commands=['stats'])[m
+[31m-def show_stats(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS:[m
+[31m-        return bot.send_message(chat_id, "❌ Admin only command.")[m
+[31m-[m
+[31m-    total_users = len(user_accounts)[m
+[31m-    total_accounts = sum(len(accounts) for accounts in user_accounts.values())[m
+[31m-[m
+[31m-    stats_text = f"📊 **Bot Statistics**\n\n"[m
+[31m-    stats_text += f"👥 Total Users: {total_users}\n"[m
+[31m-    stats_text += f"🔢 Total Accounts Created: {total_accounts}\n"[m
+[31m-    stats_text += f"✅ Approved Users: {len(approved_users)}\n\n"[m
+[31m-[m
+[31m-    if user_accounts:[m
+[31m-        stats_text += "**Top Users:**\n"[m
+[31m-        sorted_users = sorted(user_accounts.items(), key=lambda x: len(x[1]), reverse=True)[:5][m
+[31m-        for user_id, accounts in sorted_users:[m
+[31m-            try:[m
+[31m-                user = bot.get_chat(int(user_id))[m
+[31m-                name = user.first_name or "Unknown"[m
+[31m-                stats_text += f"• {name} (`{user_id}`): {len(accounts)} accounts\n"[m
+[31m-            except:[m
+[31m-                stats_text += f"• User `{user_id}`: {len(accounts)} accounts\n"[m
+[31m-[m
+[31m-    bot.send_message(chat_id, stats_text, parse_mode="Markdown")[m
+[31m-[m
+[31m-@bot.message_handler(commands=['clear_accounts'])[m
+[31m-def clear_accounts(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[31m-        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[31m-[m
+[31m-    if str(chat_id) in user_accounts:[m
+[31m-        count = len(user_accounts[str(chat_id)])[m
+[31m-        del user_accounts[str(chat_id)][m
+[31m-[m
+[31m-        # Save updated accounts[m
+[31m-        with open(ACCOUNTS_FILE, "w") as f:[m
+[31m-            json.dump(user_accounts, f, indent=2)[m
+[31m-[m
+[31m-        bot.send_message(chat_id, f"🗑️ Cleared {count} accounts from your list.")[m
+[31m-    else:[m
+[31m-        bot.send_message(chat_id, "📭 You don't have any accounts to clear.")[m
+[31m-[m
+[31m-@bot.message_handler(func=lambda m: True)[m
+[31m-def handle_other_messages(msg):[m
+[31m-    chat_id = msg.chat.id[m
+[31m-    bot.send_message(chat_id, "ℹ️ Use `/start` for help or `/github <amount>` to create accounts.", parse_mode="Markdown")[m
+[31m-[m
+[31m-# Main bot loop[m
+[31m-if __name__ == "__main__":[m
+[31m-    print("🤖 GitHub Account Creator Bot Started...")[m
+[31m-    print(f"📊 Loaded {len(approved_users)} approved users")[m
+[31m-    print(f"💾 Loaded {sum(len(accounts) for accounts in user_accounts.values())} total accounts")[m
+[31m-[m
+[31m-    # Test TempMail service on startup[m
+[31m-    print("🧪 Testing TempMail services...")[m
+[31m-    temp_mail = create_temp_email_with_fallback()[m
+[31m-    if temp_mail and temp_mail.email:[m
+[31m-        service_name = temp_mail.__class__.__name__[m
+[31m-        print(f"✅ {service_name} working: {temp_mail.email}")[m
+[31m-    else:[m
+[31m-        print("❌ All TempMail services failed")[m
+[31m-[m
+[31m-    while True:[m
+[31m-        try:[m
+[31m-            bot.polling(non_stop=True, timeout=30)[m
+[31m-        except Exception as e:[m
+[31m-            print(f"❌ Bot crashed with error: {e}")[m
+[31m-            time.sleep(5)  # wait 5 seconds before restarting[m
+[32m+[m[32mimport telebot[m
+[32m+[m[32mimport threading[m
+[32m+[m[32mimport time, random, string[m
+[32m+[m[32mimport requests[m
+[32m+[m[32mimport re[m
+[32m+[m[32mimport os[m
+[32m+[m[32mimport hashlib[m
+[32m+[m[32mimport json[m
+[32m+[m[32mfrom selenium import webdriver[m
+[32m+[m[32mfrom selenium.webdriver.chrome.service import Service[m
+[32m+[m[32mfrom selenium.webdriver.common.by import By[m
+[32m+[m[32mfrom selenium.webdriver.common.keys import Keys[m
+[32m+[m[32mfrom selenium.webdriver.support.ui import WebDriverWait, Select[m
+[32m+[m[32mfrom selenium.webdriver.support import expected_conditions as EC[m
+[32m+[m[32mfrom telebot.types import InlineKeyboardMarkup, InlineKeyboardButton[m
+[32m+[m
+[32m+[m[32mtry:[m[41m [m
+[32m+[m[41m [m	[32mfrom TempMail import TempMail[m
+[32m+[m[32mexcept ImportError:[m
+[32m+[m	[32mTempMail = None[m
+[32m+[m
+[32m+[m[32m#from temp_mail import TempMail[m
+[32m+[m[32mBOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"[m
+[32m+[m[32mCHROMEDRIVER_PATH = "/usr/bin/chromedriver"[m
+[32m+[m[32mPASSWORD = "YourDefaultPassword@123"[m
+[32m+[m[32mbot = telebot.TeleBot(BOT_TOKEN)[m
+[32m+[m[32muser_sessions = {}[m
+[32m+[m[32muser_accounts = {}[m[41m [m
+[32m+[m[32mADMIN_IDS = [YOUR_TELEGRAM_USER_ID][m
+[32m+[m[32mAPPROVE_FILE = "approve.txt"[m
+[32m+[m[32mACCOUNTS_FILE = "accounts.json"[m
+[32m+[m[32mCHANNEL_ID = YOUR_CHANNEL_ID  # Channel where accounts are posted[m
+[32m+[m[32mapproved_users = set()[m
+[32m+[m
+[32m+[m[32m# Load approved users[m
+[32m+[m[32mif os.path.exists(APPROVE_FILE):[m
+[32m+[m[32m    with open(APPROVE_FILE, "r") as f:[m
+[32m+[m[32m        approved_users = set(int(line.strip()) for line in f if line.strip().isdigit())[m
+[32m+[m
+[32m+[m[32m# Load saved accounts[m
+[32m+[m[32mif os.path.exists(ACCOUNTS_FILE):[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        with open(ACCOUNTS_FILE, "r") as f:[m
+[32m+[m[32m            user_accounts = json.load(f)[m
+[32m+[m[32m    except:[m
+[32m+[m[32m        user_accounts = {}[m
+[32m+[m
+[32m+[m[32mdef save_approved_user(user_id):[m
+[32m+[m[32m    approved_users.add(user_id)[m
+[32m+[m[32m    with open(APPROVE_FILE, "a") as f:[m
+[32m+[m[32m        f.write(f"{user_id}\n")[m
+[32m+[m
+[32m+[m[32mdef save_account(user_id, account_data):[m
+[32m+[m[32m    """Save account data to persistent storage"""[m
+[32m+[m[32m    if str(user_id) not in user_accounts:[m
+[32m+[m[32m        user_accounts[str(user_id)] = [][m
+[32m+[m[32m    user_accounts[str(user_id)].append(account_data)[m
+[32m+[m
+[32m+[m[32m    with open(ACCOUNTS_FILE, "w") as f:[m
+[32m+[m[32m        json.dump(user_accounts, f, indent=2)[m
+[32m+[m
+[32m+[m[32mdef get_user_accounts(user_id):[m
+[32m+[m[32m    """Get all accounts for a user"""[m
+[32m+[m[32m    return user_accounts.get(str(user_id), [])[m
+[32m+[m
+[32m+[m[32mdef random_suffix(length=6):[m
+[32m+[m[32m    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))[m
+[32m+[m
+[32m+[m[32mclass TempMailService:[m
+[32m+[m[32m    def __init__(self):[m
+[32m+[m[32m        self.tmp = TempMail()[m
+[32m+[m[32m        self.inbox = None[m
+[32m+[m[32m        self.email = None[m
+[32m+[m
+[32m+[m[32m    def create_email(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            print("Creating temporary email using TempMail library...")[m
+[32m+[m[32m            self.inbox = self.tmp.createInbox()[m
+[32m+[m[32m            self.email = self.inbox.address[m
+[32m+[m[32m            print(f"Created email: {self.email}")[m
+[32m+[m[32m            return self.email[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"Error creating email: {e}")[m
+[32m+[m[32m            return None[m
+[32m+[m
+[32m+[m[32m    def get_otp_from_github_email(self, max_attempts=30):[m
+[32m+[m[32m        """Extract 8-digit OTP from GitHub verification email"""[m
+[32m+[m[32m        print(f"Looking for OTP in emails for {max_attempts} attempts...")[m
+[32m+[m[32m        for attempt in range(max_attempts):[m
+[32m+[m[32m            print(f"Attempt {attempt + 1}/{max_attempts}")[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                emails = self.tmp.getEmails(self.inbox)[m
+[32m+[m[32m                print(f"Found {len(emails)} emails")[m
+[32m+[m
+[32m+[m[32m                for email in emails:[m
+[32m+[m[32m                    sender = email.sender.lower() if hasattr(email, 'sender') else ''[m
+[32m+[m[32m                    subject = email.subject if hasattr(email, 'subject') else ''[m
+[32m+[m[32m                    body = email.body if hasattr(email, 'body') else ''[m
+[32m+[m
+[32m+[m[32m                    print(f"Email from: {sender}")[m
+[32m+[m[32m                    print(f"Subject: {subject}")[m
+[32m+[m
+[32m+[m[32m                    if 'github' in sender or 'noreply' in sender or 'github' in subject.lower():[m
+[32m+[m[32m                        print(f"GitHub email found - Subject: {subject}")[m
+[32m+[m
+[32m+[m[32m                        # Look for 8-digit OTP pattern[m
+[32m+[m[32m                        otp_match = re.search(r'\b\d{8}\b', body)[m
+[32m+[m[32m                        if otp_match:[m
+[32m+[m[32m                            otp = otp_match.group()[m
+[32m+[m[32m                            print(f"Found 8-digit OTP: {otp}")[m
+[32m+[m[32m                            return otp[m
+[32m+[m
+[32m+[m[32m                        # Look for 6-digit OTP as fallback[m
+[32m+[m[32m                        otp_match = re.search(r'\b\d{6}\b', body)[m
+[32m+[m[32m                        if otp_match:[m
+[32m+[m[32m                            otp = otp_match.group()[m
+[32m+[m[32m                            print(f"Found 6-digit OTP: {otp}")[m
+[32m+[m[32m                            return otp[m
+[32m+[m
+[32m+[m[32m                        # Alternative patterns[m
+[32m+[m[32m                        otp_match = re.search(r'verification code[:\s]*(\d{6,8})', body, re.IGNORECASE)[m
+[32m+[m[32m                        if otp_match:[m
+[32m+[m[32m                            otp = otp_match.group(1)[m
+[32m+[m[32m                            print(f"Found OTP (alternative pattern): {otp}")[m
+[32m+[m[32m                            return otp[m
+[32m+[m
+[32m+[m[32m                        print(f"GitHub email body preview: {body[:200]}...")[m
+[32m+[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                print(f"Error checking emails: {e}")[m
+[32m+[m
+[32m+[m[32m            time.sleep(3)[m
+[32m+[m
+[32m+[m[32m        print("No OTP found after all attempts")[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mclass OneSecMailService:[m
+[32m+[m[32m    def __init__(self):[m
+[32m+[m[32m        self.base_url = "https://www.1secmail.com/api/v1/"[m
+[32m+[m[32m        self.email = None[m
+[32m+[m[32m        self.login = None[m
+[32m+[m[32m        self.domain = None[m
+[32m+[m
+[32m+[m[32m    def get_domains(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            response = requests.get(f"{self.base_url}?action=getDomainList", timeout=10)[m
+[32m+[m[32m            return response.json()[m
+[32m+[m[32m        except:[m
+[32m+[m[32m            return ['1secmail.com', '1secmail.org', '1secmail.net'][m
+[32m+[m
+[32m+[m[32m    def create_email(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            print("Creating email using 1SecMail...")[m
+[32m+[m[32m            domains = self.get_domains()[m
+[32m+[m[32m            self.login = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[32m+[m[32m            self.domain = random.choice(domains)[m
+[32m+[m[32m            self.email = f"{self.login}@{self.domain}"[m
+[32m+[m[32m            print(f"Created 1SecMail email: {self.email}")[m
+[32m+[m[32m            return self.email[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"Error creating 1SecMail: {e}")[m
+[32m+[m[32m            return None[m
+[32m+[m
+[32m+[m[32m    def get_otp_from_github_email(self, max_attempts=30):[m
+[32m+[m[32m        print(f"Looking for OTP in 1SecMail for {max_attempts} attempts...")[m
+[32m+[m[32m        for attempt in range(max_attempts):[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                response = requests.get([m
+[32m+[m[32m                    f"{self.base_url}?action=getMessages&login={self.login}&domain={self.domain}",[m
+[32m+[m[32m                    timeout=10[m
+[32m+[m[32m                )[m
+[32m+[m[32m                messages = response.json()[m
+[32m+[m
+[32m+[m[32m                for msg in messages:[m
+[32m+[m[32m                    if 'github' in msg.get('from', '').lower() or 'github' in msg.get('subject', '').lower():[m
+[32m+[m[32m                        # Get full message[m
+[32m+[m[32m                        msg_response = requests.get([m
+[32m+[m[32m                            f"{self.base_url}?action=readMessage&login={self.login}&domain={self.domain}&id={msg['id']}",[m
+[32m+[m[32m                            timeout=10[m
+[32m+[m[32m                        )[m
+[32m+[m[32m                        full_msg = msg_response.json()[m
+[32m+[m[32m                        body = full_msg.get('body', '')[m
+[32m+[m
+[32m+[m[32m                        # Look for OTP[m
+[32m+[m[32m                        otp_match = re.search(r'\b\d{6,8}\b', body)[m
+[32m+[m[32m                        if otp_match:[m
+[32m+[m[32m                            return otp_match.group()[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                print(f"Error checking 1SecMail: {e}")[m
+[32m+[m
+[32m+[m[32m            time.sleep(3)[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mclass TempMailPlusService:[m
+[32m+[m[32m    def __init__(self):[m
+[32m+[m[32m        self.base_url = "https://api.temp-mail.org/request"[m
+[32m+[m[32m        self.email = None[m
+[32m+[m[32m        self.hash = None[m
+[32m+[m
+[32m+[m[32m    def get_domains(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            response = requests.get(f"{self.base_url}/domains/format/json", timeout=10)[m
+[32m+[m[32m            return response.json()[m
+[32m+[m[32m        except:[m
+[32m+[m[32m            return ['@tempmail.org', '@temp-mail.org'][m
+[32m+[m
+[32m+[m[32m    def create_email(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            print("Creating email using TempMail.org...")[m
+[32m+[m[32m            domains = self.get_domains()[m
+[32m+[m[32m            name = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[32m+[m[32m            self.email = f"{name}{domains[0]}"[m
+[32m+[m[32m            self.hash = hashlib.md5(self.email.encode()).hexdigest()[m
+[32m+[m[32m            print(f"Created TempMail.org email: {self.email}")[m
+[32m+[m[32m            return self.email[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"Error creating TempMail.org: {e}")[m
+[32m+[m[32m            return None[m
+[32m+[m
+[32m+[m[32m    def get_otp_from_github_email(self, max_attempts=30):[m
+[32m+[m[32m        print(f"Looking for OTP in TempMail.org for {max_attempts} attempts...")[m
+[32m+[m[32m        for attempt in range(max_attempts):[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                response = requests.get([m
+[32m+[m[32m                    f"{self.base_url}/mail/id/{self.hash}/format/json",[m
+[32m+[m[32m                    timeout=10[m
+[32m+[m[32m                )[m
+[32m+[m[32m                messages = response.json()[m
+[32m+[m
+[32m+[m[32m                for msg in messages:[m
+[32m+[m[32m                    if 'github' in msg.get('mail_from', '').lower() or 'github' in msg.get('mail_subject', '').lower():[m
+[32m+[m[32m                        body = msg.get('mail_text', '')[m
+[32m+[m[32m                        otp_match = re.search(r'\b\d{6,8}\b', body)[m
+[32m+[m[32m                        if otp_match:[m
+[32m+[m[32m                            return otp_match.group()[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                print(f"Error checking TempMail.org: {e}")[m
+[32m+[m
+[32m+[m[32m            time.sleep(3)[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mclass BackupTempMail:[m
+[32m+[m[32m    def __init__(self):[m
+[32m+[m[32m        self.session = requests.Session()[m
+[32m+[m[32m        self.session.headers.update({[m
+[32m+[m[32m            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'[m
+[32m+[m[32m        })[m
+[32m+[m[32m        self.email = None[m
+[32m+[m
+[32m+[m[32m    def create_email(self):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            domains = ['@tempmail.org', '@10minutemail.net', '@mailinator.com'][m
+[32m+[m[32m            username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))[m
+[32m+[m[32m            self.email = f"{username}{random.choice(domains)}"[m
+[32m+[m[32m            print(f"Generated backup email: {self.email}")[m
+[32m+[m[32m            return self.email[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"Error creating backup email: {e}")[m
+[32m+[m[32m            return None[m
+[32m+[m
+[32m+[m[32m    def get_otp_from_github_email(self, max_attempts=30):[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mdef create_temp_email_with_fallback():[m
+[32m+[m[32m    """Try multiple TempMail services in order"""[m
+[32m+[m[32m    services = [[m
+[32m+[m[32m        ("TempMail Library", TempMailService),[m
+[32m+[m[32m        ("1SecMail", OneSecMailService),[m
+[32m+[m[32m        ("TempMail.org", TempMailPlusService),[m
+[32m+[m[32m        ("Backup", BackupTempMail)[m
+[32m+[m[32m    ][m
+[32m+[m
+[32m+[m[32m    for service_name, service_class in services:[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            print(f"Trying {service_name}...")[m
+[32m+[m[32m            temp_mail = service_class()[m
+[32m+[m[32m            email = temp_mail.create_email()[m
+[32m+[m
+[32m+[m[32m            if email:[m
+[32m+[m[32m                print(f"Successfully created email with {service_name}: {email}")[m
+[32m+[m[32m                return temp_mail[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                print(f"{service_name} failed to create email")[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"{service_name} error: {e}")[m
+[32m+[m[32m            continue[m
+[32m+[m
+[32m+[m[32m    return None[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['approve'])[m
+[32m+[m[32mdef approve_user(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not authorized to approve users.")[m
+[32m+[m
+[32m+[m[32m    args = msg.text.strip().split()[m
+[32m+[m[32m    if len(args) != 2 or not args[1].isdigit():[m
+[32m+[m[32m        return bot.send_message(chat_id, "Usage: /approve <user_id>")[m
+[32m+[m
+[32m+[m[32m    user_id = int(args[1])[m
+[32m+[m[32m    save_approved_user(user_id)[m
+[32m+[m[32m    bot.send_message(chat_id, f"✅ Approved user with ID: {user_id}")[m
+[32m+[m[32m    bot.send_message(CHANNEL_ID, f"✅ Approved user: `{user_id}`", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['upload_cards'])[m
+[32m+[m[32mdef upload_cards_command(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, "📤 Please upload your card.txt file.\n\nFormat: `number|month|year|cvv` (one per line)\nExample:\n`4111111111111111|12|25|123`", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(content_types=['document'])[m
+[32m+[m[32mdef handle_document(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not allowed to upload files.")[m
+[32m+[m
+[32m+[m[32m    if msg.document.file_name == "card.txt":[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            file_info = bot.get_file(msg.document.file_id)[m
+[32m+[m[32m            downloaded_file = bot.download_file(file_info.file_path)[m
+[32m+[m
+[32m+[m[32m            with open("card.txt", "wb") as f:[m
+[32m+[m[32m                f.write(downloaded_file)[m
+[32m+[m
+[32m+[m[32m            # Validate card format[m
+[32m+[m[32m            with open("card.txt", "r") as f:[m
+[32m+[m[32m                lines = f.readlines()[m
+[32m+[m[32m                valid_cards = 0[m
+[32m+[m[32m                for line in lines:[m
+[32m+[m[32m                    if line.strip() and "|" in line:[m
+[32m+[m[32m                        parts = line.strip().split("|")[m
+[32m+[m[32m                        if len(parts) == 4:[m
+[32m+[m[32m                            valid_cards += 1[m
+[32m+[m
+[32m+[m[32m            bot.send_message(chat_id, f"✅ Card file uploaded successfully!\n📊 Found {valid_cards} valid cards.")[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            bot.send_message(chat_id, f"❌ Error uploading file: {e}")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        bot.send_message(chat_id, "❌ Please upload a file named 'card.txt'")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['github'])[m
+[32m+[m[32mdef handle_github_cmd(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[32m+[m
+[32m+[m[32m    args = msg.text.strip().split()[m
+[32m+[m[32m    if len(args) != 2 or not args[1].isdigit():[m
+[32m+[m[32m        return bot.send_message(chat_id, "Usage: `/github <amount>`\nExample: `/github 5` (to create 5 accounts)", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m    amount = int(args[1])[m
+[32m+[m[32m    if amount < 1 or amount > 500:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ Amount must be between 1 and 500 accounts.")[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, f"🚀 Starting creation of {amount} GitHub accounts...\nAccounts will be created one by one.")[m
+[32m+[m[32m    threading.Thread(target=create_multiple_accounts, args=(chat_id, amount)).start()[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['accounts'])[m
+[32m+[m[32mdef show_accounts(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[32m+[m
+[32m+[m[32m    accounts = get_user_accounts(chat_id)[m
+[32m+[m[32m    if not accounts:[m
+[32m+[m[32m        return bot.send_message(chat_id, "📭 You don't have any GitHub accounts yet.\nUse `/github <amount>` to create accounts.", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m    markup = InlineKeyboardMarkup()[m
+[32m+[m[32m    for i, account in enumerate(accounts):[m
+[32m+[m[32m        markup.row(InlineKeyboardButton(f"Account {i+1}: {account['username']}", callback_data=f"account_{chat_id}_{i}"))[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, f"📋 Your GitHub Accounts ({len(accounts)} total):\nClick on any account to view details:", reply_markup=markup)[m
+[32m+[m
+[32m+[m[32mdef create_multiple_accounts(chat_id, amount):[m
+[32m+[m[32m    """Create multiple GitHub accounts one by one"""[m
+[32m+[m[32m    success_count = 0[m
+[32m+[m[32m    failed_count = 0[m
+[32m+[m
+[32m+[m[32m    for i in range(amount):[m
+[32m+[m[32m        bot.send_message(chat_id, f"🔄 Creating account {i+1}/{amount}...")[m
+[32m+[m
+[32m+[m[32m        result = github_signup_auto(chat_id, account_number=i+1)[m
+[32m+[m
+[32m+[m[32m        if result:[m
+[32m+[m[32m            success_count += 1[m
+[32m+[m[32m            bot.send_message(chat_id, f"✅ Account {i+1}/{amount} created successfully!")[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            failed_count += 1[m
+[32m+[m[32m            bot.send_message(chat_id, f"❌ Account {i+1}/{amount} failed to create.")[m
+[32m+[m
+[32m+[m[32m        # Wait between accounts to avoid rate limiting[m
+[32m+[m[32m        if i < amount - 1:[m
+[32m+[m[32m            bot.send_message(chat_id, "⏳ Waiting 10 seconds before creating next account...")[m
+[32m+[m[32m            time.sleep(10)[m
+[32m+[m
+[32m+[m[32m    # Final summary[m
+[32m+[m[32m    summary = f"🎯 **Account Creation Summary**\n\n"[m
+[32m+[m[32m    summary += f"✅ Successful: {success_count}\n"[m
+[32m+[m[32m    summary += f"❌ Failed: {failed_count}\n"[m
+[32m+[m[32m    summary += f"📊 Total: {amount}\n\n"[m
+[32m+[m[32m    summary += f"Use `/accounts` to view all your accounts."[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, summary, parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32mdef create_repo_and_codespace(driver, wait, username):[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        driver.get("https://github.com/new")[m
+[32m+[m[32m        suggested_btn = wait.until(EC.element_to_be_clickable([m
+[32m+[m[32m            (By.XPATH, "//button[contains(@aria-label, 'Use suggested repository name')]")))[m
+[32m+[m[32m        repo_name = suggested_btn.text.strip()[m
+[32m+[m[32m        suggested_btn.click()[m
+[32m+[m[32m        readme_toggle = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@aria-labelledby='add-readme']")))[m
+[32m+[m[32m        if readme_toggle.get_attribute("aria-pressed") == "false":[m
+[32m+[m[32m            readme_toggle.click()[m
+[32m+[m[32m        time.sleep(1)[m
+[32m+[m[32m        create_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and .//span[text()='Create repository']]")))[m
+[32m+[m[32m        create_button.click()[m
+[32m+[m[32m        time.sleep(5)[m
+[32m+[m[32m        code_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//summary[contains(@class, 'get-repo-select-menu')]")))[m
+[32m+[m[32m        code_button.click()[m
+[32m+[m[32m        time.sleep(1)[m
+[32m+[m[32m        codespaces_tab = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Codespaces')]")))[m
+[32m+[m[32m        codespaces_tab.click()[m
+[32m+[m[32m        time.sleep(1)[m
+[32m+[m[32m        create_codespace_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Create codespace on main')]")))[m
+[32m+[m[32m        create_codespace_btn.click()[m
+[32m+[m[32m        return repo_name[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        print("❌ Error in repo/codespace creation:", e)[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mdef upgrade_to_github_pro(driver, chat_id=None):[m
+[32m+[m[32m    wait = WebDriverWait(driver, 20)[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        time.sleep(10)[m
+[32m+[m[32m        driver.get("https://github.com/settings/billing/licensing")[m
+[32m+[m
+[32m+[m[32m        if chat_id:[m
+[32m+[m[32m            bot.send_message(chat_id, "🔁 Opening Licensing Page...")[m
+[32m+[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            upgrade_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Upgrade to GitHub Pro')]")))[m
+[32m+[m[32m            upgrade_link.click()[m
+[32m+[m[32m            if chat_id:[m
+[32m+[m[32m                bot.send_message(chat_id, "✅ Clicked 'Upgrade to GitHub Pro' link.")[m
+[32m+[m[32m        except Exception as link_error:[m
+[32m+[m[32m            if chat_id:[m
+[32m+[m[32m                bot.send_message(chat_id, f"⚠️ Could not find upgrade link: {link_error}")[m
+[32m+[m[32m            return False[m
+[32m+[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            final_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(), 'Upgrade to GitHub Pro')]]")))[m
+[32m+[m[32m            time.sleep(2)[m
+[32m+[m[32m            final_button.click()[m
+[32m+[m[32m            if chat_id:[m
+[32m+[m[32m                bot.send_message(chat_id, "✅ Clicked final 'Upgrade to GitHub Pro' button.")[m
+[32m+[m[32m        except Exception as button_error:[m
+[32m+[m[32m            if chat_id:[m
+[32m+[m[32m                bot.send_message(chat_id, f"⚠️ Failed - Card not added or insufficient balance")[m
+[32m+[m[32m            return False[m
+[32m+[m
+[32m+[m[32m        time.sleep(5)[m
+[32m+[m[32m        if "GitHub Pro" in driver.page_source:[m
+[32m+[m[32m            return True[m
+[32m+[m[32m        return True[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        if chat_id:[m
+[32m+[m[32m            bot.send_message(chat_id, f"❌ Error during upgrade: {e}")[m
+[32m+[m[32m        return False[m
+[32m+[m
+[32m+[m[32mdef github_signup_auto(chat_id, account_number=1):[m
+[32m+[m[32m    USERNAME = "jnjks" + ''.join(random.choices(string.ascii_lowercase, k=6))[m
+[32m+[m[32m    IOS_USER_AGENTS = [[m
+[32m+[m[32m        "Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"[m
+[32m+[m[32m    ][m
+[32m+[m
+[32m+[m[32m    # Create temporary email using TempMail library[m
+[32m+[m[32m    temp_mail = create_temp_email_with_fallback()[m
+[32m+[m
+[32m+[m[32m    if not temp_mail or not temp_mail.email:[m
+[32m+[m[32m        bot.send_message(chat_id, f"❌ Account {account_number}: Failed to create temporary email")[m
+[32m+[m[32m        return False[m
+[32m+[m
+[32m+[m[32m    email = temp_mail.email[m
+[32m+[m
+[32m+[m[32m    # Check if it's from TempMail library[m
+[32m+[m[32m    if isinstance(temp_mail, TempMailService):[m
+[32m+[m[32m        bot.send_message(chat_id, f"📧 Account {account_number}: Created temporary email: `{email}`", parse_mode="Markdown")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email: `{email}`", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        ios_user_agent = random.choice(IOS_USER_AGENTS)[m
+[32m+[m[32m        service = Service(CHROMEDRIVER_PATH)[m
+[32m+[m[32m        options = webdriver.ChromeOptions()[m
+[32m+[m[32m        options.add_argument('--headless=new')[m
+[32m+[m[32m        options.add_argument('--no-sandbox')[m
+[32m+[m[32m        options.add_argument('--disable-dev-shm-usage')[m
+[32m+[m[32m        options.add_argument('--disable-gpu')[m
+[32m+[m[32m        options.add_argument('--log-level=3')[m
+[32m+[m[32m        options.add_argument('--window-size=1920,1080')[m
+[32m+[m[32m        options.add_argument('--incognito')[m
+[32m+[m[32m        options.add_argument(f"user-agent={ios_user_agent}")[m
+[32m+[m[32m        options.add_experimental_option('excludeSwitches', ['enable-logging'])[m
+[32m+[m
+[32m+[m[32m        driver = webdriver.Chrome(service=service, options=options)[m
+[32m+[m[32m        wait = WebDriverWait(driver, 30)[m
+[32m+[m
+[32m+[m[32m        driver.get("https://github.com/signup")[m
+[32m+[m[32m        bot.send_message(chat_id, f"🟢 Account {account_number}: Start Creating GitHub Account...")[m
+[32m+[m
+[32m+[m[32m        # Enter email[m
+[32m+[m[32m        email_input = wait.until(EC.presence_of_element_located((By.ID, "email")))[m
+[32m+[m[32m        email_input.send_keys(email)[m
+[32m+[m[32m        email_input.send_keys(Keys.RETURN)[m
+[32m+[m[32m        time.sleep(2)[m
+[32m+[m
+[32m+[m[32m        # Enter password[m
+[32m+[m[32m        password_input = wait.until(EC.presence_of_element_located((By.ID, "password")))[m
+[32m+[m[32m        password_input.send_keys(PASSWORD)[m
+[32m+[m[32m        password_input.send_keys(Keys.RETURN)[m
+[32m+[m[32m        time.sleep(2)[m
+[32m+[m
+[32m+[m[32m        # Enter username[m
+[32m+[m[32m        username_input = wait.until(EC.presence_of_element_located((By.ID, "login")))[m
+[32m+[m[32m        username_input.send_keys(USERNAME)[m
+[32m+[m[32m        username_input.send_keys(Keys.RETURN)[m
+[32m+[m[32m        time.sleep(2)[m
+[32m+[m
+[32m+[m[32m        # Click create account button[m
+[32m+[m[32m        create_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.signup-form-fields__button")))[m
+[32m+[m[32m        driver.execute_script("arguments[0].click();", create_button)[m
+[32m+[m
+[32m+[m[32m        old_url = driver.current_url[m
+[32m+[m[32m        for _ in range(30):[m
+[32m+[m[32m            if driver.current_url != old_url:[m
+[32m+[m[32m                break[m
+[32m+[m[32m            time.sleep(1)[m
+[32m+[m
+[32m+[m[32m        if "account_verifications" in driver.current_url:[m
+[32m+[m[32m            bot.send_message(chat_id, f"📨 Account {account_number}: Waiting for OTP from email...")[m
+[32m+[m
+[32m+[m[32m            # Only try to get OTP if using TempMail library[m
+[32m+[m[32m            if isinstance(temp_mail, TempMailService) or isinstance(temp_mail, OneSecMailService) or isinstance(temp_mail, TempMailPlusService):[m
+[32m+[m[32m                otp = temp_mail.get_otp_from_github_email()[m
+[32m+[m
+[32m+[m[32m                if not otp:[m
+[32m+[m[32m                    bot.send_message(chat_id, f"❌ Account {account_number}: Failed to receive OTP from email")[m
+[32m+[m[32m                    driver.quit()[m
+[32m+[m[32m                    return False[m
+[32m+[m
+[32m+[m[32m                bot.send_message(chat_id, f"✅ Account {account_number}: Received OTP: `{otp}`", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m                # Enter OTP (handle both 6 and 8 digit OTPs)[m
+[32m+[m[32m                otp_length = len(otp)[m
+[32m+[m[32m                for i, digit in enumerate(otp):[m
+[32m+[m[32m                    if i < 8:  # GitHub OTP fields are typically 8 digits max[m
+[32m+[m[32m                        otp_field = wait.until(EC.element_to_be_clickable((By.ID, f"launch-code-{i}")))[m
+[32m+[m[32m                        otp_field.clear()[m
+[32m+[m[32m                        otp_field.send_keys(digit)[m
+[32m+[m[32m                        time.sleep(0.1)[m
+[32m+[m
+[32m+[m[32m                # Click continue button[m
+[32m+[m[32m                for btn in driver.find_elements(By.TAG_NAME, "button"):[m
+[32m+[m[32m                    if "Continue" in btn.text:[m
+[32m+[m[32m                        driver.execute_script("arguments[0].click();", btn)[m
+[32m+[m[32m                        break[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email - OTP verification not available.")[m
+[32m+[m[32m                driver.quit()[m
+[32m+[m[32m                return False[m
+[32m+[m
+[32m+[m[32m            time.sleep(5)[m
+[32m+[m
+[32m+[m[32m            # Login to verify account creation[m
+[32m+[m[32m            driver.get("https://github.com/login")[m
+[32m+[m[32m            wait.until(EC.presence_of_element_located((By.ID, "login_field"))).send_keys(USERNAME)[m
+[32m+[m[32m            driver.find_element(By.ID, "password").send_keys(PASSWORD)[m
+[32m+[m[32m            driver.find_element(By.NAME, "commit").click()[m
+[32m+[m[32m            time.sleep(3)[m
+[32m+[m
+[32m+[m[32m            if "sessions/verified-device" in driver.current_url:[m
+[32m+[m[32m                bot.send_message(chat_id, f"🛡 Account {account_number}: Device verification required. Handling automatically...")[m
+[32m+[m[32m                time.sleep(5)[m
+[32m+[m
+[32m+[m[32m            # Create repository and codespace[m
+[32m+[m[32m            create_repo_and_codespace(driver, wait, USERNAME)[m
+[32m+[m
+[32m+[m[32m            # Create GitHub token[m
+[32m+[m[32m            driver.get("https://github.com/settings/tokens/new")[m
+[32m+[m[32m            wait.until(EC.presence_of_element_located((By.ID, "oauth_access_description")))[m
+[32m+[m[32m            token_name = "SoulKing" + random_suffix()[m
+[32m+[m
+[32m+[m[32m            desc = driver.find_element(By.ID, "oauth_access_description")[m
+[32m+[m[32m            desc.clear()[m
+[32m+[m[32m            desc.send_keys(token_name)[m
+[32m+[m
+[32m+[m[32m            scopes = ["repo", "user", "codespace", "admin:org", "delete_repo", "workflow", "write:packages",[m
+[32m+[m[32m                      "delete:packages", "admin:public_key", "admin:repo_hook", "admin:org_hook", "gist",[m
+[32m+[m[32m                      "notifications", "admin:enterprise", "audit_log", "copilot", "write:network_configurations",[m
+[32m+[m[32m                      "project", "admin:gpg_key", "admin:ssh_signing_key"][m
+[32m+[m
+[32m+[m[32m            for scope in scopes:[m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    checkbox = wait.until(EC.element_to_be_clickable((By.XPATH, f"//input[@type='checkbox' and @value='{scope}']")))[m
+[32m+[m[32m                    if not checkbox.is_selected():[m
+[32m+[m[32m                        driver.execute_script("arguments[0].click();", checkbox)[m
+[32m+[m[32m                except:[m
+[32m+[m[32m                    pass[m
+[32m+[m
+[32m+[m[32m            submit_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Generate token')]")[m
+[32m+[m[32m            driver.execute_script("arguments[0].click();", submit_btn)[m
+[32m+[m
+[32m+[m[32m            wait.until(EC.presence_of_element_located((By.ID, "new-oauth-token")))[m
+[32m+[m[32m            token = driver.find_element(By.ID, "new-oauth-token").text.strip()[m
+[32m+[m
+[32m+[m[32m            # Save account data[m
+[32m+[m[32m            account_data = {[m
+[32m+[m[32m                "username": USERNAME,[m
+[32m+[m[32m                "password": PASSWORD,[m
+[32m+[m[32m                "token": token,[m
+[32m+[m[32m                "email": email,[m
+[32m+[m[32m                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),[m
+[32m+[m[32m                "account_number": account_number[m
+[32m+[m[32m            }[m
+[32m+[m
+[32m+[m[32m            save_account(chat_id, account_data)[m
+[32m+[m
+[32m+[m[32m            # Store in session for immediate access[m
+[32m+[m[32m            user_sessions[f"{chat_id}_{account_number}"] = account_data[m
+[32m+[m
+[32m+[m[32m            # Send to channel[m
+[32m+[m[32m            tg_user = bot.get_chat(chat_id)[m
+[32m+[m[32m            gh_info = f"👤 GitHub Username: `{USERNAME}`\n🔐 Password: `{PASSWORD}`\n🪪 Token: `{token}`\n📧 Email: `{email}`"[m
+[32m+[m[32m            tg_info = f"👤 TG User: {tg_user.first_name} (@{tg_user.username})\n🆔 ID: `{chat_id}`\n📊 Account #{account_number}"[m
+[32m+[m[32m            bot.send_message(CHANNEL_ID, f"{tg_info}\n\n{gh_info}", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m            # Handle billing and card injection[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                billing_url = "https://github.com/settings/billing/payment_information"[m
+[32m+[m[32m                driver.get(billing_url)[m
+[32m+[m[32m                bot.send_message(chat_id, f"💳 Account {account_number}: Opening Billing Information Page...")[m
+[32m+[m
+[32m+[m[32m                wait.until(EC.presence_of_element_located((By.ID, "account_screening_profile_first_name"))).send_keys("soul")[m
+[32m+[m[32m                driver.find_element(By.ID, "account_screening_profile_last_name").send_keys("king")[m
+[32m+[m[32m                driver.find_element(By.ID, "account_screening_profile_address1").send_keys("delhi")[m
+[32m+[m[32m                driver.find_element(By.ID, "account_screening_profile_city").send_keys("delhi")[m
+[32m+[m[32m                Select(driver.find_element(By.ID, "account_screening_profile_country_code")).select_by_value("IN")[m
+[32m+[m[32m                driver.find_element(By.ID, "account_screening_profile_postal_code").send_keys("100012")[m
+[32m+[m
+[32m+[m
+[32m+[m[32m                wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@name='submit' and contains(., 'Save billing information')]"))).click()[m
+[32m+[m[32m                bot.send_message(chat_id, f"💾 Account {account_number}: Saved Billing Information.")[m
+[32m+[m[32m                time.sleep(3)[m
+[32m+[m
+[32m+[m[32m                driver.refresh()[m
+[32m+[m[32m                time.sleep(5)[m
+[32m+[m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    warning_banner = driver.find_element(By.CSS_SELECTOR, '[data-testid="trade-screening-status-banner"]')[m
+[32m+[m[32m                    if "flagged" in warning_banner.text.lower():[m
+[32m+[m[32m                        bot.send_message(chat_id, f"🚫 Account {account_number}: Account is FLAGGED. Cannot proceed with billing.")[m
+[32m+[m[32m                        driver.quit()[m
+[32m+[m[32m                        return True  # Still consider it successful since account was created[m
+[32m+[m
+[32m+[m[32m                except:[m
+[32m+[m[32m                    bot.send_message(chat_id, f"✅ Account {account_number}: No flagged warning detected.")[m
+[32m+[m
+[32m+[m[32m                # Card injection logic[m
+[32m+[m[32m                if os.path.exists("card.txt"):[m
+[32m+[m[32m                    with open("card.txt", "r") as f:[m
+[32m+[m[32m                        card_list = [line.strip() for line in f if line.strip()][m
+[32m+[m
+[32m+[m[32m                    for card_line in card_list:[m
+[32m+[m[32m                        driver.get(billing_url)[m
+[32m+[m[32m                        bot.send_message(chat_id, f"💳 Account {account_number}: Trying card: `{card_line[:4]}****`", parse_mode="Markdown")[m
+[32m+[m[32m                        try:[m
+[32m+[m[32m                            add_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.js-edit-payment-method-btn")))[m
+[32m+[m[32m                            add_btn.click()[m
+[32m+[m[32m                            wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "z_hppm_iframe")))[m
+[32m+[m
+[32m+[m[32m                            card_number, month, year, cvv = card_line.split("|")[m
+[32m+[m[32m                            wait.until(EC.presence_of_element_located((By.ID, "input-creditCardNumber"))).send_keys(card_number)[m
+[32m+[m[32m                            Select(wait.until(EC.element_to_be_clickable((By.ID, "input-creditCardExpirationMonth")))).select_by_value(month)[m
+[32m+[m[32m                            full_year = f"20{year}" if len(year) == 2 else year[m
+[32m+[m[32m                            Select(wait.until(EC.element_to_be_clickable((By.ID, "input-creditCardExpirationYear")))).select_by_value(full_year)[m
+[32m+[m[32m                            wait.until(EC.presence_of_element_located((By.ID, "input-cardSecurityCode"))).send_keys(cvv)[m
+[32m+[m
+[32m+[m[32m                            wait.until(EC.element_to_be_clickable((By.ID, "submitButton"))).click()[m
+[32m+[m[32m                            bot.send_message(chat_id, f"💾 Account {account_number}: Submitted card. Waiting for confirmation...")[m
+[32m+[m[32m                            time.sleep(5)[m
+[32m+[m
+[32m+[m[32m                            try:[m
+[32m+[m[32m                                error_div = driver.find_element(By.ID, "error")[m
+[32m+[m[32m                                if "declined" in error_div.text.lower():[m
+[32m+[m[32m                                    bot.send_message(chat_id, f"❌ Account {account_number}: Card Declined")[m
+[32m+[m[32m                                    driver.switch_to.default_content()[m
+[32m+[m[32m                                    continue[m
+[32m+[m[32m                            except:[m
+[32m+[m[32m                                bot.send_message(chat_id, f"✅ Account {account_number}: Card approved.")[m
+[32m+[m[32m                                driver.switch_to.default_content()[m
+[32m+[m[32m                                upgrade_result = upgrade_to_github_pro(driver, chat_id)[m
+[32m+[m[32m                                if upgrade_result:[m
+[32m+[m[32m                                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")[m
+[32m+[m[32m                                else:[m
+[32m+[m[32m                                    bot.send_message(chat_id, f"⚠️ Account {account_number}: Card submitted, but upgrade to GitHub Pro failed.")[m
+[32m+[m[32m                                break[m
+[32m+[m
+[32m+[m[32m                            driver.switch_to.default_content()[m
+[32m+[m[32m                            driver.refresh()[m
+[32m+[m[32m                            time.sleep(5)[m
+[32m+[m[32m                        except Exception as card_error:[m
+[32m+[m[32m                            bot.send_message(chat_id, f"⚠️ Account {account_number}: Card error")[m
+[32m+[m[32m                            driver.switch_to.default_content()[m
+[32m+[m[32m                            continue[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    bot.send_message(chat_id, f"⚠️ Account {account_number}: No card.txt file found. Skipping card injection.")[m
+[32m+[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                bot.send_message(chat_id, f"❌ Account {account_number}: Billing/Card error: {e}")[m
+[32m+[m
+[32m+[m[32m            # Try to upgrade to GitHub Pro even without card[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                upgrade_result = upgrade_to_github_pro(driver, chat_id)[m
+[32m+[m[32m                if upgrade_result:[m
+[32m+[m[32m                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")[m
+[32m+[m[32m            except:[m
+[32m+[m[32m                pass[m
+[32m+[m
+[32m+[m[32m            driver.quit()[m
+[32m+[m[32m            return True[m
+[32m+[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            bot.send_message(chat_id, f"❌ Account {account_number}: Account creation failed - no verification page found")[m
+[32m+[m[32m            driver.quit()[m
+[32m+[m[32m            return False[m
+[32m+[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        bot.send_message(chat_id, f"❌ Account {account_number}: Error during GitHub signup: {str(e)}")[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            driver.quit()[m
+[32m+[m[32m        except:[m
+[32m+[m[32m            pass[m
+[32m+[m[32m        return False[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['start'])[m
+[32m+[m[32mdef start_command(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    welcome_text = """[m
+[32m+[m[32m🤖 **GitHub Account Creator Bot**[m
+[32m+[m
+[32m+[m[32m**Commands:**[m
+[32m+[m[32m• `/github <amount>` - Create GitHub accounts (1-10)[m
+[32m+[m[32m• `/accounts` - View your created accounts[m
+[32m+[m[32m• `/upload_cards` - Upload card.txt file[m
+[32m+[m[32m• `/approve <user_id>` - Approve user (Admin only)[m
+[32m+[m[32m• `/test_email` - Test TempMail service (Admin only)[m
+[32m+[m
+[32m+[m[32m**Features:**[m
+[32m+[m[32m✅ Multiple temporary email services[m
+[32m+[m[32m✅ Auto OTP detection and verification[m
+[32m+[m[32m✅ GitHub token generation with full permissions[m
+[32m+[m[32m✅ Billing information setup[m
+[32m+[m[32m✅ Credit card injection (if card.txt exists)[m
+[32m+[m[32m✅ GitHub Pro upgrade attempt[m
+[32m+[m[32m✅ Persistent account storage[m
+[32m+[m[32m✅ One-by-one account creation[m
+[32m+[m
+[32m+[m[32m**Examples:**[m
+[32m+[m[32m• `/github 1` - Create 1 account[m
+[32m+[m[32m• `/github 5` - Create 5 accounts[m
+[32m+[m
+[32m+[m[32m**Note:** You need approval to use this bot.[m
+[32m+[m[32mContact admin for access.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    bot.send_message(chat_id, welcome_text, parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['test_email'])[m
+[32m+[m[32mdef test_email_creation(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ Admin only command.")[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, "🧪 Testing TempMail services...")[m
+[32m+[m[32m    temp_mail = create_temp_email_with_fallback()[m
+[32m+[m
+[32m+[m[32m    if temp_mail and temp_mail.email:[m
+[32m+[m[32m        service_name = temp_mail.__class__.__name__[m
+[32m+[m[32m        bot.send_message(chat_id, f"✅ {service_name} working: `{temp_mail.email}`", parse_mode="Markdown")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        bot.send_message(chat_id, "❌ All TempMail services failed")[m
+[32m+[m
+[32m+[m[32m@bot.callback_query_handler(func=lambda call: True)[m
+[32m+[m[32mdef handle_callback(call):[m
+[32m+[m[32m    chat_id = call.message.chat.id[m
+[32m+[m
+[32m+[m[32m    if call.data.startswith("account_"):[m
+[32m+[m[32m        # Parse callback data: account_chatid_index[m
+[32m+[m[32m        parts = call.data.split("_")[m
+[32m+[m[32m        if len(parts) >= 3:[m
+[32m+[m[32m            original_chat_id = int(parts[1])[m
+[32m+[m[32m            account_index = int(parts[2])[m
+[32m+[m
+[32m+[m[32m            # Get accounts from persistent storage[m
+[32m+[m[32m            accounts = get_user_accounts(original_chat_id)[m
+[32m+[m
+[32m+[m[32m            if account_index < len(accounts):[m
+[32m+[m[32m                account = accounts[account_index][m
+[32m+[m
+[32m+[m[32m                # Create inline keyboard for account details[m
+[32m+[m[32m                markup = InlineKeyboardMarkup()[m
+[32m+[m[32m                markup.row([m
+[32m+[m[32m                    InlineKeyboardButton("👤 Username", callback_data=f"show_username_{original_chat_id}_{account_index}"),[m
+[32m+[m[32m                    InlineKeyboardButton("🔑 Password", callback_data=f"show_password_{original_chat_id}_{account_index}")[m
+[32m+[m[32m                )[m
+[32m+[m[32m                markup.row([m
+[32m+[m[32m                    InlineKeyboardButton("🧾 Token", callback_data=f"show_token_{original_chat_id}_{account_index}"),[m
+[32m+[m[32m                    InlineKeyboardButton("📧 Email", callback_data=f"show_email_{original_chat_id}_{account_index}")[m
+[32m+[m[32m                )[m
+[32m+[m[32m                markup.row(InlineKeyboardButton("🔙 Back to Accounts", callback_data="back_to_accounts"))[m
+[32m+[m
+[32m+[m[32m                account_info = f"📋 **Account #{account_index + 1} Details**\n\n"[m
+[32m+[m[32m                account_info += f"👤 Username: `{account['username']}`\n"[m
+[32m+[m[32m                account_info += f"📅 Created: {account.get('created_at', 'Unknown')}\n\n"[m
+[32m+[m[32m                account_info += "Click buttons below to view sensitive information:"[m
+[32m+[m
+[32m+[m[32m                bot.edit_message_text([m
+[32m+[m[32m                    account_info,[m
+[32m+[m[32m                    chat_id=chat_id,[m
+[32m+[m[32m                    message_id=call.message.message_id,[m
+[32m+[m[32m                    reply_markup=markup,[m
+[32m+[m[32m                    parse_mode="Markdown"[m
+[32m+[m[32m                )[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                bot.answer_callback_query(call.id, "❌ Account not found.")[m
+[32m+[m
+[32m+[m[32m    elif call.data.startswith("show_"):[m
+[32m+[m[32m        # Parse callback data: show_field_chatid_index[m
+[32m+[m[32m        parts = call.data.split("_")[m
+[32m+[m[32m        if len(parts) >= 4:[m
+[32m+[m[32m            field = parts[1][m
+[32m+[m[32m            original_chat_id = int(parts[2])[m
+[32m+[m[32m            account_index = int(parts[3])[m
+[32m+[m
+[32m+[m[32m            accounts = get_user_accounts(original_chat_id)[m
+[32m+[m
+[32m+[m[32m            if account_index < len(accounts):[m
+[32m+[m[32m                account = accounts[account_index][m
+[32m+[m
+[32m+[m[32m                if field == "username":[m
+[32m+[m[32m                    bot.send_message(chat_id, f"👤 Username: `{account['username']}`", parse_mode="Markdown")[m
+[32m+[m[32m                elif field == "password":[m
+[32m+[m[32m                    bot.send_message(chat_id, f"🔑 Password: `{account['password']}`", parse_mode="Markdown")[m
+[32m+[m[32m                elif field == "token":[m
+[32m+[m[32m                    bot.send_message(chat_id, f"🧾 Token: `{account['token']}`", parse_mode="Markdown")[m
+[32m+[m[32m                elif field == "email":[m
+[32m+[m[32m                    bot.send_message(chat_id, f"📧 Email: `{account['email']}`", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m                bot.answer_callback_query(call.id, f"✅ {field.title()} sent!")[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                bot.answer_callback_query(call.id, "❌ Account not found.")[m
+[32m+[m
+[32m+[m[32m    elif call.data == "back_to_accounts":[m
+[32m+[m[32m        # Show accounts list again[m
+[32m+[m[32m        accounts = get_user_accounts(chat_id)[m
+[32m+[m[32m        if accounts:[m
+[32m+[m[32m            markup = InlineKeyboardMarkup()[m
+[32m+[m[32m            for i, account in enumerate(accounts):[m
+[32m+[m[32m                markup.row(InlineKeyboardButton(f"Account {i+1}: {account['username']}", callback_data=f"account_{chat_id}_{i}"))[m
+[32m+[m
+[32m+[m[32m            bot.edit_message_text([m
+[32m+[m[32m                f"📋 Your GitHub Accounts ({len(accounts)} total):\nClick on any account to view details:",[m
+[32m+[m[32m                chat_id=chat_id,[m
+[32m+[m[32m                message_id=call.message.message_id,[m
+[32m+[m[32m                reply_markup=markup[m
+[32m+[m[32m            )[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            bot.edit_message_text([m
+[32m+[m[32m                "📭 You don't have any GitHub accounts yet.\nUse `/github <amount>` to create accounts.",[m
+[32m+[m[32m                chat_id=chat_id,[m
+[32m+[m[32m                message_id=call.message.message_id,[m
+[32m+[m[32m                parse_mode="Markdown"[m
+[32m+[m[32m            )[m
+[32m+[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        bot.answer_callback_query(call.id, "Invalid selection.")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['stats'])[m
+[32m+[m[32mdef show_stats(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ Admin only command.")[m
+[32m+[m
+[32m+[m[32m    total_users = len(user_accounts)[m
+[32m+[m[32m    total_accounts = sum(len(accounts) for accounts in user_accounts.values())[m
+[32m+[m
+[32m+[m[32m    stats_text = f"📊 **Bot Statistics**\n\n"[m
+[32m+[m[32m    stats_text += f"👥 Total Users: {total_users}\n"[m
+[32m+[m[32m    stats_text += f"🔢 Total Accounts Created: {total_accounts}\n"[m
+[32m+[m[32m    stats_text += f"✅ Approved Users: {len(approved_users)}\n\n"[m
+[32m+[m
+[32m+[m[32m    if user_accounts:[m
+[32m+[m[32m        stats_text += "**Top Users:**\n"[m
+[32m+[m[32m        sorted_users = sorted(user_accounts.items(), key=lambda x: len(x[1]), reverse=True)[:5][m
+[32m+[m[32m        for user_id, accounts in sorted_users:[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                user = bot.get_chat(int(user_id))[m
+[32m+[m[32m                name = user.first_name or "Unknown"[m
+[32m+[m[32m                stats_text += f"• {name} (`{user_id}`): {len(accounts)} accounts\n"[m
+[32m+[m[32m            except:[m
+[32m+[m[32m                stats_text += f"• User `{user_id}`: {len(accounts)} accounts\n"[m
+[32m+[m
+[32m+[m[32m    bot.send_message(chat_id, stats_text, parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(commands=['clear_accounts'])[m
+[32m+[m[32mdef clear_accounts(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    if chat_id not in ADMIN_IDS and chat_id not in approved_users:[m
+[32m+[m[32m        return bot.send_message(chat_id, "❌ You are not allowed to use this command.")[m
+[32m+[m
+[32m+[m[32m    if str(chat_id) in user_accounts:[m
+[32m+[m[32m        count = len(user_accounts[str(chat_id)])[m
+[32m+[m[32m        del user_accounts[str(chat_id)][m
+[32m+[m
+[32m+[m[32m        # Save updated accounts[m
+[32m+[m[32m        with open(ACCOUNTS_FILE, "w") as f:[m
+[32m+[m[32m            json.dump(user_accounts, f, indent=2)[m
+[32m+[m
+[32m+[m[32m        bot.send_message(chat_id, f"🗑️ Cleared {count} accounts from your list.")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        bot.send_message(chat_id, "📭 You don't have any accounts to clear.")[m
+[32m+[m
+[32m+[m[32m@bot.message_handler(func=lambda m: True)[m
+[32m+[m[32mdef handle_other_messages(msg):[m
+[32m+[m[32m    chat_id = msg.chat.id[m
+[32m+[m[32m    bot.send_message(chat_id, "ℹ️ Use `/start` for help or `/github <amount>` to create accounts.", parse_mode="Markdown")[m
+[32m+[m
+[32m+[m[32m# Main bot loop[m
+[32m+[m[32mif __name__ == "__main__":[m
+[32m+[m[32m    print("🤖 GitHub Account Creator Bot Started...")[m
+[32m+[m[32m    print(f"📊 Loaded {len(approved_users)} approved users")[m
+[32m+[m[32m    print(f"💾 Loaded {sum(len(accounts) for accounts in user_accounts.values())} total accounts")[m
+[32m+[m
+[32m+[m[32m    # Test TempMail service on startup[m
+[32m+[m[32m    print("🧪 Testing TempMail services...")[m
+[32m+[m[32m    temp_mail = create_temp_email_with_fallback()[m
+[32m+[m[32m    if temp_mail and temp_mail.email:[m
+[32m+[m[32m        service_name = temp_mail.__class__.__name__[m
+[32m+[m[32m        print(f"✅ {service_name} working: {temp_mail.email}")[m
+[32m+[m[32m    else:[m
+[32m+[m[32m        print("❌ All TempMail services failed")[m
+[32m+[m
+[32m+[m[32m    while True:[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            bot.polling(non_stop=True, timeout=30)[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            print(f"❌ Bot crashed with error: {e}")[m
+[32m+[m[32m            time.sleep(5)  # wait 5 seconds before restarting[m
+[1mdiff --git a/requirements.txt b/requirements.txt[m
+[1mindex 4caf075..1b517d9 100644[m
+[1m--- a/requirements.txt[m
+[1m+++ b/requirements.txt[m
+[36m@@ -1,4 +1,4 @@[m
+ pyTelegramBotAPI[m
+ selenium[m
+ requests[m
+[31m-TempMail[m
+\ No newline at end of file[m
+[41m+[m

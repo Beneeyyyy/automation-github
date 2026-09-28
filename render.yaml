@@ -1,0 +1,11 @@
+services:
+  - type: worker          # long-running background process (not a web server)
+    name: github-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false       # will be set manually in Render dashboard
+      - key: CHROME_PROXY
+        value: ""         # leave empty unless you have a proxy

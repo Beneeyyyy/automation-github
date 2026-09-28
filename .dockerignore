@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.py[cod]
+.git/
+.github/
+*.bak
+*.before-tempmail-fix
+accounts.json
+approve.txt
+card.txt
+*.log
+chromedriver
+github_signup_test.png
+test_selenium.py
